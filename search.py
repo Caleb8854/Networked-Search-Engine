@@ -1,10 +1,12 @@
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+import json
 import math
 import os
 import pickle
 import re
-from typing import Dict, List, Tuple
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -19,100 +21,245 @@ WORD = re.compile(r"[a-z0-9]+")
 def tokenize(s: str) -> List[str]:
     return WORD.findall(s.lower())
 
-class SearchEngine:
+class Segment:
+    def __init__(self, segDir: str):
+        self.segDir = segDir
+        self._docs: Optional[Dict[int, Document]] = None
+        self._postings: Optional[Dict[str, Dict[int, int]]] = None
+        self._doclen: Optional[Dict[int, int]] = None
+        self._termdf: Optional[Dict[str, int]] = None
+        self._meta: Optional[Dict[str, Any]] = None
+
+    def loadPickle(self, name: str):
+        path = os.path.join(self.segDir, name)
+        with open(path, "rb") as f:
+            return pickle.load(f)
+
+    def loadJson(self, name: str):
+        path = os.path.join(self.segDir, name)
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    @property
+    def docs(self) -> Dict[int, Document]:
+        if self._docs is None:
+            self._docs = self.loadPickle("docs.pkl")
+        return self._docs
+
+    @property
+    def postings(self) -> Dict[str, Dict[int, int]]:
+        if self._postings is None:
+            self._postings = self.loadPickle("postings.pkl")
+        return self._postings
+
+    @property
+    def doclen(self) -> Dict[int, int]:
+        if self._doclen is None:
+            self._doclen = self.loadPickle("doclen.pkl")
+        return self._doclen
+
+    @property
+    def termdf(self) -> Dict[str, int]:
+        if self._termdf is None:
+            self._termdf = self.loadPickle("termdf.pkl")
+        return self._termdf
+
+    @property
+    def meta(self) -> Dict[str, Any]:
+        if self._meta is None:
+            self._meta = self.loadJson("meta.json")
+        return self._meta
+
+class SegmentWriter:
     def __init__(self):
         self.docs: Dict[int, Document] = {}
-        self.postings: Dict[str, Dict[int,int]] = defaultdict(dict)
-        self.docLen: Dict[int,int] = {}
-        self.nextId: int = 1
+        self.postings: Dict[str, Dict[int, int]] = defaultdict(dict)
+        self.doclen: Dict[int, int] = {}
 
-    def add(self, title: str, path: str, text: str) -> int:
-        docId = self.nextId
-        self.nextId += 1
-        doc = Document(id=docId,title=title,path=path,text=text)
-        self.docs[docId] = doc
-        tokens = tokenize(title + " " + text)
-        self.docLen[docId] = len(tokens)
+    def addDoc(self, doc: Document) -> None:
+        self.docs[doc.id] = doc
+
+        tokens = tokenize(doc.title + " " + doc.text)
+        self.doclen[doc.id] = len(tokens)
+
         freqs = Counter(tokens)
         for term, freq in freqs.items():
-            self.postings[term][docId] = freq
+            self.postings[term][doc.id] = freq
+
+    def flush(self, segDir: str) -> None:
+        os.makedirs(segDir, exist_ok=False)
+
+        termdf = {term: len(docMap) for term, docMap in self.postings.items()}
+
+        with open(os.path.join(segDir, "docs.pkl"), "wb") as f:
+            pickle.dump(self.docs, f)
+
+        with open(os.path.join(segDir, "postings.pkl"), "wb") as f:
+            pickle.dump(dict(self.postings), f)
+
+        with open(os.path.join(segDir, "doclen.pkl"), "wb") as f:
+            pickle.dump(self.doclen, f)
+
+        with open(os.path.join(segDir, "termdf.pkl"), "wb") as f:
+            pickle.dump(termdf, f)
+
+        meta = {
+            "doc_count": len(self.docs),
+            "created_at_unix": int(time.time()),
+        }
+        with open(os.path.join(segDir, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+
+class SearchEngine:
+    def __init__(self, root: str = "segments"):
+        self.root = root
+        self.manifestPath = os.path.join(self.root, "manifest.json")
+        os.makedirs(self.root, exist_ok=True)
+        self.manifest = self.loadOrInitManifest()
+        self.segments: List[Segment] = [Segment(os.path.join(self.root,segName)) for segName in self.manifest["segments"]]
+        
+    def loadOrInitManifest(self) -> Dict[str, Any]:
+        if os.path.exists(self.manifestPath):
+            with open(self.manifestPath, "r", encoding="utf-8") as f:
+                return json.load(f)
+        manifest = {"version": 1, "segments": [], "nextId": 1, "totalDocs": 0}
+        self.writeManifest(manifest)
+        return manifest
+    
+    def writeManifest(self, manifest: Dict[str, Any]) -> None:
+        tmp = self.manifestPath + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+        os.replace(tmp, self.manifestPath)
+
+    def newSegmentName(self) -> str:
+        n = len(self.manifest["segments"]) + 1
+        return f"seg_{n:06d}"
+    
+    def globalDf(self, term: str) -> int:
+        docFreq = 0
+        for seg in self.segments:
+            docFreq += seg.termdf.get(term,0)
+        return docFreq
+    
 
     def indexFolder(self, folder: str) -> int:
-        count = 0
+        if not os.path.isdir(folder):
+            raise FileNotFoundError(f"Folder not found {folder}")
+        
+        writer = SegmentWriter()
+        added = 0
+
         for name in sorted(os.listdir(folder)):
             if not name.lower().endswith(".txt"):
                 continue
-            path = os.path.join(folder,name)
-            with open(path,"r",encoding="utf-8",errors="ignore") as f:
+            path = os.path.join(folder, name)
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 text = f.read()
-            title = os.path.splitext(name)[0].replace("_"," ")
-            self.add(title,path,text)
-            count += 1
-        return count
+            title = os.path.splitext(name)[0].replace("_", " ")
+            docId = self.manifest["nextId"]
+            self.manifest["nextId"] += 1
+
+            doc =  Document(id=docId,title=title,path=path,text=text)
+            writer.addDoc(doc)
+            added += 1
+
+        if added == 0:
+            return 0
+
+        segName = self.newSegmentName()
+        segDir = os.path.join(self.root, segName)
+
+        writer.flush(segDir)
+
+        self.manifest["segments"].append(segName)
+        self.manifest["totalDocs"] += added
+        self.writeManifest(self.manifest)
+
+        self.segments.append(Segment(segDir))
+
+        return added
+    
+    
+    
     
     def search(self, query: str, k: int = 10) -> List[Tuple[float,Document]]:
         terms = tokenize(query)
         if not terms:
             return []
-        n = len(self.docs) or 1
+        n = self.manifest["totalDocs"] or 1
 
         candidates = set()
-        for t in terms:
-            candidates.update(self.postings.get(t, {}).keys())
+        for seg in self.segments:
+            for t in terms:
+                candidates.update(seg.postings.get(t, {}).keys())
         
-        results: List[Tuple[float,int]] = []
+        results: List[Tuple[float,int,Document]] = []
         for id in candidates:
             score = 0.0
+            doc = None
+            doclen = None
+            owningSeg = None
+
+            for seg in self.segments:
+                if id in seg.docs:
+                    owningSeg = seg
+                    doc = seg.docs[id]
+                    doclen = seg.doclen.get(id,1)
+                    break
+            if doc is None:
+                continue
             for t in terms:
-                freq = self.postings.get(t,{}).get(id,0)
+                freq = owningSeg.postings.get(t, {}).get(id, 0)
                 if freq == 0:
                     continue
-                docFreq = len(self.postings.get(t,{}))
+                docFreq = self.globalDf(t)
                 rare = math.log((n+1) / (docFreq + 1)) + 1.0
                 score += freq * rare
-            score /= math.sqrt(self.docLen.get(id,1))
-            results.append((score,id))
+            score /= math.sqrt(doclen)
+            results.append((score,id,doc))
         results.sort(reverse=True, key=lambda x: x[0])
-        return [(score, self.docs[id]) for score, id in results[:k]]
+        return [(score, doc) for score, _, doc in results[:k]]
     
-    def save(self, path:str) -> None:
-        with open(path,"wb") as f:
-            pickle.dump(self,f)
-    
-    @staticmethod
-    def load(path: str) -> "SearchEngine":
-        with open(path,"rb") as f:
-            obj = pickle.load(f)
-        if not isinstance(obj,SearchEngine):
-            raise TypeError("File did not contain a SearchEngine")
-        return obj
 
 def main():
-    docsFolder = "docs"
-    indexFile = "index.pkl"
+    docs_folder = "docs"
+    engine = SearchEngine(root="segments")
 
-    if os.path.exists(indexFile):
-        engine = SearchEngine.load(indexFile)
-    else:
-        
-        engine = SearchEngine()
-        n = engine.indexFolder(docsFolder)
-        if not os.path.isdir(docsFolder):
-            raise FileNotFoundError("Missing folder")
-        engine.save(indexFile)
-    
+    print("CWD:", os.getcwd())
+    print("Segments:", len(engine.segments), "Total docs:", engine.manifest["totalDocs"])
+
+    print("\nCommands:")
+    print("  :index      -> index docs/ as a NEW segment")
+    print("  :stats      -> show segment stats")
+    print("  :quit       -> exit")
+    print("Or type a search query.\n")
+
     while True:
-        q = input("search ").strip()
+        q = input("search> ").strip()
         if not q:
             continue
+
         if q == ":quit":
             break
-        results=engine.search(q,k=10)
-        if not results:
-            print("no matches")
+
+        if q == ":index":
+            n = engine.indexFolder(docs_folder)
+            print(f"Indexed {n} documents into a new segment. Total docs now: {engine.manifest['totalDocs']}")
             continue
+        if q == ":stats":
+            print(f"Total docs: {engine.manifest['totalDocs']}")
+            for i, seg in enumerate(engine.segments, start=1):
+                print(f"  {i}. {os.path.basename(seg.segDir)}  docs={seg.meta['doc_count']}  created_at={seg.meta['created_at_unix']}")
+            continue
+
+        results = engine.search(q, k=10)
+        if not results:
+            print("(no matches)")
+            continue
+
         for score, doc in results:
-            print(f"  {score:.3f}   {doc.id}    {doc.title} [{doc.path}]")
+            print(f"  {score:.3f}  {doc.id}  {doc.title}  [{doc.path}]")
         print()
 
 if __name__ == "__main__":
