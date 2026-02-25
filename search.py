@@ -5,6 +5,7 @@ import math
 import os
 import pickle
 import re
+import shutil
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -104,7 +105,7 @@ class SegmentWriter:
             pickle.dump(termdf, f)
 
         meta = {
-            "doc_count": len(self.docs),
+            "docCount": len(self.docs),
             "created_at_unix": int(time.time()),
         }
         with open(os.path.join(segDir, "meta.json"), "w", encoding="utf-8") as f:
@@ -142,6 +143,76 @@ class SearchEngine:
             docFreq += seg.termdf.get(term,0)
         return docFreq
     
+    def listSegments(self) -> List[Tuple[str,int]]:
+        out = []
+        for seg in self.segments:
+            segName = os.path.basename(seg.segDir)
+            out.append((segName, int(seg.meta["docCount"])))
+        return out
+    
+    def mergeSmallest(self) -> int:
+        if len(self.segments) < 2:
+            return 0
+        segInfos = []
+        for seg in self.segments:
+            segInfos.append((int(seg.meta["docCount"]),seg))
+        segInfos.sort(key=lambda x: x[0])
+        a = segInfos[0][1]
+        b = segInfos[1][1]
+        return self.mergeSegments(os.path.basename(a.segDir),os.path.basename(b.segDir))
+    
+    def mergeSegments(self, segA: str, segB: str) -> int:
+        a = None
+        b = None
+        for seg in self.segments:
+            name = os.path.basename(seg.segDir)
+            if name == segA:
+                a = seg
+            if name == segB:
+                b = seg
+        if a is None or b is None:
+            raise ValueError(f"Could not find both segments: {segA}, {segB}")
+        if segA == segB:
+            raise ValueError("Cannot merge the same segment")
+            
+        docs = {}
+        docs.update(a.docs)
+        docs.update(b.docs)
+
+        doclen = {}
+        doclen.update(a.doclen)
+        doclen.update(b.doclen)
+
+        mergedPostings = defaultdict(dict)
+        for term, docMap in a.postings.items():
+            mergedPostings[term].update(docMap)
+        for term, docMap in b.postings.items():
+            mergedPostings[term].update(docMap)
+
+        mergedWriter = SegmentWriter()
+        mergedWriter.docs = docs
+        mergedWriter.doclen = doclen
+        mergedWriter.postings = mergedPostings
+
+        mergedName = f"seg_merge_{int(time.time())}"
+        mergedDir = os.path.join(self.root, mergedName)
+        mergedWriter.flush(mergedDir)
+
+        mergedCount = len(docs)
+
+        segList = self.manifest["segments"]
+        segList = [s for s in segList if s not in (segA, segB)]
+        segList.append(mergedName)
+        self.manifest["segments"] = segList
+        self.writeManifest(self.manifest)
+
+        self.segments = [seg for seg in self.segments if os.path.basename(seg.segDir) not in (segA, segB)]
+        self.segments.append(Segment(mergedDir))
+
+        shutil.rmtree(os.path.join(self.root, segA), ignore_errors=True)
+        shutil.rmtree(os.path.join(self.root, segB), ignore_errors=True)
+
+        return mergedCount
 
     def indexFolder(self, folder: str) -> int:
         if not os.path.isdir(folder):
@@ -233,6 +304,7 @@ def main():
     print("  :index      -> index docs/ as a NEW segment")
     print("  :stats      -> show segment stats")
     print("  :quit       -> exit")
+    print("  :merge      -> merge 2 smallest segments")
     print("Or type a search query.\n")
 
     while True:
@@ -250,8 +322,14 @@ def main():
         if q == ":stats":
             print(f"Total docs: {engine.manifest['totalDocs']}")
             for i, seg in enumerate(engine.segments, start=1):
-                print(f"  {i}. {os.path.basename(seg.segDir)}  docs={seg.meta['doc_count']}  created_at={seg.meta['created_at_unix']}")
+                print(f"  {i}. {os.path.basename(seg.segDir)}  docs={seg.meta['docCount']}  created_at={seg.meta['created_at_unix']}")
             continue
+        if q == ":merge":
+            n = engine.mergeSmallest()
+            if n:
+                print(f"Merged segments into a new one with {n} docs.")
+            continue
+
 
         results = engine.search(q, k=10)
         if not results:
