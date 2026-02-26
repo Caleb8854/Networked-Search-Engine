@@ -118,12 +118,17 @@ class SearchEngine:
         os.makedirs(self.root, exist_ok=True)
         self.manifest = self.loadOrInitManifest()
         self.segments: List[Segment] = [Segment(os.path.join(self.root,segName)) for segName in self.manifest["segments"]]
+        self.seen = set(self.manifest["seen"])
         
     def loadOrInitManifest(self) -> Dict[str, Any]:
         if os.path.exists(self.manifestPath):
             with open(self.manifestPath, "r", encoding="utf-8") as f:
                 return json.load(f)
-        manifest = {"version": 1, "segments": [], "nextId": 1, "totalDocs": 0}
+            if "nextSegmentId" not in manifest:
+                manifest["nextSegmentId"] = 1
+            if "seen" not in manifest:
+                manifest["seen"] = []
+        manifest = {"version": 1, "segments": [], "nextId": 1, "nextSegmentId": 1, "totalDocs": 0, "seen": []}
         self.writeManifest(manifest)
         return manifest
     
@@ -134,8 +139,9 @@ class SearchEngine:
         os.replace(tmp, self.manifestPath)
 
     def newSegmentName(self) -> str:
-        n = len(self.manifest["segments"]) + 1
-        return f"seg_{n:06d}"
+        segId = self.manifest["nextSegmentId"]
+        self.manifest["nextSegmentId"] += 1
+        return f"seg_{segId:06d}"
     
     def globalDf(self, term: str) -> int:
         docFreq = 0
@@ -194,7 +200,7 @@ class SearchEngine:
         mergedWriter.doclen = doclen
         mergedWriter.postings = mergedPostings
 
-        mergedName = f"seg_merge_{int(time.time())}"
+        mergedName = self.newSegmentName()
         mergedDir = os.path.join(self.root, mergedName)
         mergedWriter.flush(mergedDir)
 
@@ -213,6 +219,14 @@ class SearchEngine:
         shutil.rmtree(os.path.join(self.root, segB), ignore_errors=True)
 
         return mergedCount
+    
+    def autoMerge(self, maxSegments: int = 10) -> None:
+        while len(self.segments) > maxSegments:
+            mergedDocs = self.mergeSmallest()
+            if mergedDocs == 0:
+                break
+        
+        return
 
     def indexFolder(self, folder: str) -> int:
         if not os.path.isdir(folder):
@@ -225,6 +239,8 @@ class SearchEngine:
             if not name.lower().endswith(".txt"):
                 continue
             path = os.path.join(folder, name)
+            if path in self.seen:
+                continue
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 text = f.read()
             title = os.path.splitext(name)[0].replace("_", " ")
@@ -233,6 +249,7 @@ class SearchEngine:
 
             doc =  Document(id=docId,title=title,path=path,text=text)
             writer.addDoc(doc)
+            self.seen.add(path)
             added += 1
 
         if added == 0:
@@ -245,14 +262,14 @@ class SearchEngine:
 
         self.manifest["segments"].append(segName)
         self.manifest["totalDocs"] += added
+        self.manifest["seen"] = list(self.seen)
         self.writeManifest(self.manifest)
 
         self.segments.append(Segment(segDir))
 
+        self.autoMerge(maxSegments=10)
+
         return added
-    
-    
-    
     
     def search(self, query: str, k: int = 10) -> List[Tuple[float,Document]]:
         terms = tokenize(query)
@@ -292,7 +309,6 @@ class SearchEngine:
         results.sort(reverse=True, key=lambda x: x[0])
         return [(score, doc) for score, _, doc in results[:k]]
     
-
 def main():
     docs_folder = "docs"
     engine = SearchEngine(root="segments")
@@ -329,7 +345,6 @@ def main():
             if n:
                 print(f"Merged segments into a new one with {n} docs.")
             continue
-
 
         results = engine.search(q, k=10)
         if not results:
