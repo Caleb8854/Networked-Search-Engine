@@ -15,7 +15,6 @@ class Document:
     id: int
     title: str
     path: str
-    text: str
 
 WORD = re.compile(r"[a-z0-9]+")
 
@@ -77,15 +76,13 @@ class SegmentWriter:
         self.postings: Dict[str, Dict[int, int]] = defaultdict(dict)
         self.doclen: Dict[int, int] = {}
 
-    def addDoc(self, doc: Document) -> None:
-        self.docs[doc.id] = doc
-
-        tokens = tokenize(doc.title + " " + doc.text)
-        self.doclen[doc.id] = len(tokens)
-
+    def addDoc(self, docId: int, title: str, path: str, text: str) -> None:
+        self.docs[docId] = Document(id=docId, title=title, path=path)
+        tokens = tokenize(title + " " + text)
+        self.doclen[docId] = len(tokens)
         freqs = Counter(tokens)
         for term, freq in freqs.items():
-            self.postings[term][doc.id] = freq
+            self.postings[term][docId] = freq
 
     def flush(self, segDir: str) -> None:
         os.makedirs(segDir, exist_ok=False)
@@ -354,8 +351,7 @@ class SearchEngine:
                 self.deleted.remove(docId)
                 continue
             else:
-                doc = Document(id=docId,title=title,path=path,text=text)
-                writer.addDoc(doc)
+                writer.addDoc(docId=docId,title=title,path=path,text=text)
             self.manifest["nextId"] += 1
             self.seen.add(path)
             added += 1
