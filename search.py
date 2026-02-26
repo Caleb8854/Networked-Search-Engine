@@ -118,18 +118,26 @@ class SearchEngine:
         os.makedirs(self.root, exist_ok=True)
         self.manifest = self.loadOrInitManifest()
         self.segments: List[Segment] = [Segment(os.path.join(self.root,segName)) for segName in self.manifest["segments"]]
-        self.buildDocToSeg()
         self.seen = set(self.manifest["seen"])
+        self.deleted = set(self.manifest["deletedDocIds"])
+        self.buildDocToSeg()
+        self.pathToDoc = dict(self.manifest["pathToDocId"])
+        self.docToPath = {v: k for k, v in self.pathToDoc.items()}
         
     def loadOrInitManifest(self) -> Dict[str, Any]:
         if os.path.exists(self.manifestPath):
             with open(self.manifestPath, "r", encoding="utf-8") as f:
-                return json.load(f)
-            if "nextSegmentId" not in manifest:
-                manifest["nextSegmentId"] = 1
-            if "seen" not in manifest:
-                manifest["seen"] = []
-        manifest = {"version": 1, "segments": [], "nextId": 1, "nextSegmentId": 1, "totalDocs": 0, "seen": []}
+                manifest = json.load(f)
+                if "pathToDocId" not in manifest:
+                    manifest["pathToDocId"] = {}
+                if "deletedDocsId" not in manifest:
+                    manifest["deletedDocsId"] = []
+                if "seen" not in manifest:
+                    manifest["seen"] = []
+                if "nextSegmentId" not in manifest:
+                    manifest["nextSegmentId"] = 1
+                return manifest
+        manifest = {"version": 1, "segments": [], "nextId": 1, "nextSegmentId": 1, "totalDocs": 0, "seen": [], "deletedDocIds": [], "pathToDocId": {}}
         self.writeManifest(manifest)
         return manifest
     
@@ -148,6 +156,8 @@ class SearchEngine:
         self.docToSeg: Dict[int,int] = {}
         for i, seg in enumerate(self.segments):
             for docId in seg.docs.keys():
+                if docId in self.deleted:
+                    continue
                 self.docToSeg[docId] = i
 
     def globalDf(self, term: str) -> int:
@@ -156,6 +166,13 @@ class SearchEngine:
             docFreq += seg.termdf.get(term,0)
         return docFreq
     
+    def docCountInSegment(self, seg: Segment) -> int:
+        live = 0
+        for docId in seg.docs.keys():
+            if docId not in self.deleted:
+                live += 1
+        return live
+
     def listSegments(self) -> List[Tuple[str,int]]:
         out = []
         for seg in self.segments:
@@ -181,7 +198,7 @@ class SearchEngine:
             name = os.path.basename(seg.segDir)
             if name == segA:
                 a = seg
-            if name == segB:
+            elif name == segB:
                 b = seg
         if a is None or b is None:
             raise ValueError(f"Could not find both segments: {segA}, {segB}")
@@ -189,18 +206,30 @@ class SearchEngine:
             raise ValueError("Cannot merge the same segment")
             
         docs = {}
-        docs.update(a.docs)
-        docs.update(b.docs)
+        for dId, d in a.docs.items():
+            if dId not in self.deleted:
+                docs[dId] = d
+        for dId, d in b.docs.items():
+            if dId not in self.deleted:
+                docs[dId] = d
 
         doclen = {}
-        doclen.update(a.doclen)
-        doclen.update(b.doclen)
+        for dId, dl in a.doclen.items():
+            if dId not in self.deleted and dId in docs:
+                doclen[dId] = dl
+        for dId, dl in b.doclen.items():
+            if dId not in self.deleted and dId in docs:
+                doclen[dId] = dl
 
         mergedPostings = defaultdict(dict)
         for term, docMap in a.postings.items():
-            mergedPostings[term].update(docMap)
+            for dId, tf in docMap.items():
+                if dId not in self.deleted:
+                    mergedPostings[term][dId] = tf
         for term, docMap in b.postings.items():
-            mergedPostings[term].update(docMap)
+            for dId, tf in docMap.items():
+                if dId not in self.deleted:
+                    mergedPostings[term][dId] = tf
 
         mergedWriter = SegmentWriter()
         mergedWriter.docs = docs
@@ -213,19 +242,20 @@ class SearchEngine:
 
         mergedCount = len(docs)
 
-        segList = self.manifest["segments"]
-        segList = [s for s in segList if s not in (segA, segB)]
-        segList.append(mergedName)
-        self.manifest["segments"] = segList
-        self.writeManifest(self.manifest)
+        self.manifest["segments"] = [s for s in self.manifest["segments"] if s not in (segA, segB)]
+        self.manifest["segments"].append(mergedName)
 
         self.segments = [seg for seg in self.segments if os.path.basename(seg.segDir) not in (segA, segB)]
         self.segments.append(Segment(mergedDir))
 
+        self.buildDocToSeg()
+
+        self.manifest["totalDocs"] = len(self.docToSeg)
+
+        self.writeManifest(self.manifest)
+
         shutil.rmtree(os.path.join(self.root, segA), ignore_errors=True)
         shutil.rmtree(os.path.join(self.root, segB), ignore_errors=True)
-
-        self.buildDocToSeg()
 
         return mergedCount
     
@@ -234,13 +264,77 @@ class SearchEngine:
             mergedDocs = self.mergeSmallest()
             if mergedDocs == 0:
                 break
-        
         return
+    
+    def compactOne(self) -> int:
+        if len(self.segments) != 1:
+            return 0
+
+        seg = self.segments[0]
+        segName = os.path.basename(seg.segDir)
+
+        docs = {dId: d for dId, d in seg.docs.items() if dId not in self.deleted}
+        doclen = {dId: dl for dId, dl in seg.doclen.items() if dId in docs}
+
+        mergedPostings = defaultdict(dict)
+        for term, docMap in seg.postings.items():
+            for dId, tf in docMap.items():
+                if dId in docs:
+                    mergedPostings[term][dId] = tf
+
+        w = SegmentWriter()
+        w.docs = docs
+        w.doclen = doclen
+        w.postings = mergedPostings
+
+        newName = self.newSegmentName()
+        newDir = os.path.join(self.root, newName)
+        w.flush(newDir)
+
+        self.manifest["segments"] = [newName]
+        self.segments = [Segment(newDir)]
+        self.buildDocToSeg()
+        self.manifest["totalDocs"] = len(self.docToSeg)
+        self.writeManifest(self.manifest)
+
+        shutil.rmtree(os.path.join(self.root, segName), ignore_errors=True)
+
+        return len(docs)
+    
+    def persistDelete(self) -> None:
+        self.manifest["deletedDocIds"] = list(self.deleted)
+        self.manifest["pathToDocId"] = self.pathToDoc
+        self.manifest["totalDocs"] = len(self.docToSeg)
+        self.manifest["seen"] = list(self.seen)
+        self.writeManifest(self.manifest)
+
+    def deleteDoc(self, docId: int) -> bool:
+        if docId in self.deleted:
+            return False
+        if docId not in self.docToSeg:
+            return False
+        self.deleted.add(docId)
+        path = self.docToPath.get(docId)
+        if path is not None:
+            if path in self.seen:
+                self.seen.remove(path)
+            if path in self.pathToDoc:
+                del self.pathToDoc[path]
+            del self.docToPath[docId]
+        self.buildDocToSeg()
+        self.persistDelete()
+        return True
+    
+    def deletePath(self, path: str) -> bool:
+        path = os.path.normpath(path)
+        docId = self.pathToDoc.get(path)
+        if docId is None:
+            return False
+        return self.deleteDoc(int(docId))
 
     def indexFolder(self, folder: str) -> int:
         if not os.path.isdir(folder):
             raise FileNotFoundError(f"Folder not found {folder}")
-        
         writer = SegmentWriter()
         added = 0
 
@@ -254,10 +348,15 @@ class SearchEngine:
                 text = f.read()
             title = os.path.splitext(name)[0].replace("_", " ")
             docId = self.manifest["nextId"]
+            self.pathToDoc[path] = docId
+            self.docToPath[docId] = path
+            if docId in self.deleted:
+                self.deleted.remove(docId)
+                continue
+            else:
+                doc = Document(id=docId,title=title,path=path,text=text)
+                writer.addDoc(doc)
             self.manifest["nextId"] += 1
-
-            doc =  Document(id=docId,title=title,path=path,text=text)
-            writer.addDoc(doc)
             self.seen.add(path)
             added += 1
 
@@ -272,6 +371,8 @@ class SearchEngine:
         self.manifest["segments"].append(segName)
         self.manifest["totalDocs"] += added
         self.manifest["seen"] = list(self.seen)
+        self.manifest["pathToDocId"] = self.pathToDoc
+        self.manifest["deletedDocIds"] = list(self.deleted)
         self.writeManifest(self.manifest)
 
         self.segments.append(Segment(segDir))
@@ -294,6 +395,9 @@ class SearchEngine:
         
         results: List[Tuple[float,int,Document]] = []
         for docId in candidates:
+            if docId in self.deleted:
+                continue
+            
             score = 0.0
 
             segIndex = self.docToSeg.get(docId)
@@ -328,6 +432,10 @@ def main():
     print("  :stats      -> show segment stats")
     print("  :quit       -> exit")
     print("  :merge      -> merge 2 smallest segments")
+    print("  :deleteid <id>       -> delete docId")
+    print("  :deletepath <path>   -> delete by file path")
+    print("  :deleted             -> show deleted count")
+    print("  :gc                  -> force merges until 1 segment (reclaims deletes)")
     print("Or type a search query.\n")
 
     while True:
@@ -343,14 +451,51 @@ def main():
             print(f"Indexed {n} documents into a new segment. Total docs now: {engine.manifest['totalDocs']}")
             continue
         if q == ":stats":
-            print(f"Total docs: {engine.manifest['totalDocs']}")
+            print(f"Total live docs: {len(engine.docToSeg)}")
+            print(f"Total deleted docs: {len(engine.deleted)}")
+            print(f"Segment count: {len(engine.segments)}\n")
             for i, seg in enumerate(engine.segments, start=1):
-                print(f"  {i}. {os.path.basename(seg.segDir)}  docs={seg.meta['docCount']}  created_at={seg.meta['created_at_unix']}")
+                segName = os.path.basename(seg.segDir)
+                physical = len(seg.docs)
+                live = 0
+                for docId in seg.docs.keys():
+                    if docId not in engine.deleted:
+                        live += 1
+                print(f"  {i}. {segName}  physical={physical}  live={live}")
             continue
         if q == ":merge":
             n = engine.mergeSmallest()
             if n:
                 print(f"Merged segments into a new one with {n} docs.")
+            continue
+        if q.startswith(":deleteid "):
+            try:
+                docId = int(q.split(" ", 1)[1].strip())
+            except ValueError:
+                print("Usage: :deleteid <number>")
+                continue
+            ok = engine.deleteDocId(docId)
+            print("deleted" if ok else "not found/already deleted")
+            continue
+
+        if q.startswith(":deletepath "):
+            path = q.split(" ", 1)[1].strip()
+            ok = engine.deletePath(path)
+            print("deleted" if ok else "path not found")
+            continue
+
+        if q == ":deleted":
+            print(f"Deleted docs: {len(engine.deleted)}")
+            continue
+
+        if q == ":gc":
+            merges = 0
+            while len(engine.segments) > 1:
+                engine.mergeSmallest()
+                merges += 1
+            if len(engine.segments) == 1:
+                engine.compactOne()
+            print(f"GC done. merges={merges}, segments={len(engine.segments)}")
             continue
 
         results = engine.search(q, k=10)
