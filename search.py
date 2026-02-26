@@ -118,6 +118,7 @@ class SearchEngine:
         os.makedirs(self.root, exist_ok=True)
         self.manifest = self.loadOrInitManifest()
         self.segments: List[Segment] = [Segment(os.path.join(self.root,segName)) for segName in self.manifest["segments"]]
+        self.buildDocToSeg()
         self.seen = set(self.manifest["seen"])
         
     def loadOrInitManifest(self) -> Dict[str, Any]:
@@ -143,6 +144,12 @@ class SearchEngine:
         self.manifest["nextSegmentId"] += 1
         return f"seg_{segId:06d}"
     
+    def buildDocToSeg(self) -> None:
+        self.docToSeg: Dict[int,int] = {}
+        for i, seg in enumerate(self.segments):
+            for docId in seg.docs.keys():
+                self.docToSeg[docId] = i
+
     def globalDf(self, term: str) -> int:
         docFreq = 0
         for seg in self.segments:
@@ -218,6 +225,8 @@ class SearchEngine:
         shutil.rmtree(os.path.join(self.root, segA), ignore_errors=True)
         shutil.rmtree(os.path.join(self.root, segB), ignore_errors=True)
 
+        self.buildDocToSeg()
+
         return mergedCount
     
     def autoMerge(self, maxSegments: int = 10) -> None:
@@ -267,6 +276,7 @@ class SearchEngine:
 
         self.segments.append(Segment(segDir))
 
+        self.buildDocToSeg()
         self.autoMerge(maxSegments=10)
 
         return added
@@ -283,29 +293,26 @@ class SearchEngine:
                 candidates.update(seg.postings.get(t, {}).keys())
         
         results: List[Tuple[float,int,Document]] = []
-        for id in candidates:
+        for docId in candidates:
             score = 0.0
-            doc = None
-            doclen = None
-            owningSeg = None
 
-            for seg in self.segments:
-                if id in seg.docs:
-                    owningSeg = seg
-                    doc = seg.docs[id]
-                    doclen = seg.doclen.get(id,1)
-                    break
-            if doc is None:
+            segIndex = self.docToSeg.get(docId)
+            if segIndex is None:
                 continue
+
+            seg = self.segments[segIndex]
+            doc = seg.docs[docId]
+            doclen = seg.doclen.get(docId, 1)
+
             for t in terms:
-                freq = owningSeg.postings.get(t, {}).get(id, 0)
-                if freq == 0:
+                tf = seg.postings.get(t, {}).get(docId, 0)
+                if tf == 0:
                     continue
-                docFreq = self.globalDf(t)
-                rare = math.log((n+1) / (docFreq + 1)) + 1.0
-                score += freq * rare
+                df = self.globalDf(t)
+                idf = math.log((n + 1) / (df + 1)) + 1.0
+                score += tf * idf
             score /= math.sqrt(doclen)
-            results.append((score,id,doc))
+            results.append((score,docId,doc))
         results.sort(reverse=True, key=lambda x: x[0])
         return [(score, doc) for score, _, doc in results[:k]]
     
