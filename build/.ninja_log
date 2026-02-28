@@ -1,0 +1,11 @@
+# ninja log v7
+9	746	7939697571796799	searchcore/CMakeFiles/searchcore.dir/searchcore.cpp.obj	8c377f0fa14e8be1
+748	1328	7939697579177579	searchcore/searchcore.cp313-win_amd64.pyd	c396198519d7b1da
+25	1797	7939699944132775	searchcore/CMakeFiles/test_token.dir/test.cpp.obj	f6528540610a4195
+1798	2202	7939699961861020	searchcore/test_token.exe	e8b60ab5d18804e
+7	2454	7939702441647484	searchcore/CMakeFiles/test_token.dir/test.cpp.obj	f6528540610a4195
+2456	2782	7939702466103077	searchcore/test_token.exe	e8b60ab5d18804e
+7	2156	7939703965301865	searchcore/CMakeFiles/test_token.dir/test.cpp.obj	f6528540610a4195
+2157	2575	7939703986795076	searchcore/test_token.exe	e8b60ab5d18804e
+35	2152	7939704264525573	searchcore/CMakeFiles/test_token.dir/test.cpp.obj	f6528540610a4195
+2153	2452	7939704285747676	searchcore/test_token.exe	e8b60ab5d18804e
