@@ -1,0 +1,6 @@
+C:/Users/calca/Documents/Database/build/CMakeFiles/edit_cache.dir
+C:/Users/calca/Documents/Database/build/CMakeFiles/rebuild_cache.dir
+C:/Users/calca/Documents/Database/build/searchcore/CMakeFiles/searchcore.dir
+C:/Users/calca/Documents/Database/build/searchcore/CMakeFiles/test_token.dir
+C:/Users/calca/Documents/Database/build/searchcore/CMakeFiles/edit_cache.dir
+C:/Users/calca/Documents/Database/build/searchcore/CMakeFiles/rebuild_cache.dir

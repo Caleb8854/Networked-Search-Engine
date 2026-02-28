@@ -1,0 +1,14 @@
+[
+{
+  "directory": "C:/Users/calca/Documents/Database/build",
+  "command": "C:\\PROGRA~2\\MICROS~2\\18\\BUILDT~1\\VC\\Tools\\MSVC\\1450~1.357\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DPy_NO_LINK_LIB -Dsearchcore_EXPORTS -IC:\\Users\\calca\\Documents\\Database\\searchcore -external:IC:\\Users\\calca\\AppData\\Local\\Programs\\Python\\Python313\\Include -external:IC:\\Users\\calca\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\pybind11\\include -external:W0 /DWIN32 /D_WINDOWS /W3 /GR /EHsc /MDd /Zi /Ob0 /Od /RTC1 -std:c++17 /bigobj /Fosearchcore\\CMakeFiles\\searchcore.dir\\searchcore.cpp.obj /Fdsearchcore\\CMakeFiles\\searchcore.dir\\ /FS -c C:\\Users\\calca\\Documents\\Database\\searchcore\\searchcore.cpp",
+  "file": "C:/Users/calca/Documents/Database/searchcore/searchcore.cpp",
+  "output": "C:/Users/calca/Documents/Database/build/searchcore/CMakeFiles/searchcore.dir/searchcore.cpp.obj"
+},
+{
+  "directory": "C:/Users/calca/Documents/Database/build",
+  "command": "C:\\PROGRA~2\\MICROS~2\\18\\BUILDT~1\\VC\\Tools\\MSVC\\1450~1.357\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DPROJECTROOT_DIR=\\\"C:/Users/calca/Documents/Database\\\" -IC:\\Users\\calca\\Documents\\Database\\searchcore /DWIN32 /D_WINDOWS /W3 /GR /EHsc /MDd /Zi /Ob0 /Od /RTC1 -std:c++17 /Fosearchcore\\CMakeFiles\\test_token.dir\\test.cpp.obj /Fdsearchcore\\CMakeFiles\\test_token.dir\\ /FS -c C:\\Users\\calca\\Documents\\Database\\searchcore\\test.cpp",
+  "file": "C:/Users/calca/Documents/Database/searchcore/test.cpp",
+  "output": "C:/Users/calca/Documents/Database/build/searchcore/CMakeFiles/test_token.dir/test.cpp.obj"
+}
+]

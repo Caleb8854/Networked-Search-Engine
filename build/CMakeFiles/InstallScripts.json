@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/calca/Documents/Database/build/cmake_install.cmake",
+		"C:/Users/calca/Documents/Database/build/searchcore/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

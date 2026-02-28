@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-inline void tokenize_lower(const std::string& s, std::vector<std::string>& out) {
+inline void tokenizeLower(const std::string& s, std::vector<std::string>& out) {
     out.clear();
 
     std::string token;
@@ -23,7 +23,7 @@ inline void tokenize_lower(const std::string& s, std::vector<std::string>& out) 
             }
         }
     }
-    
+
     if (!token.empty()) {
         out.push_back(token);
     }
