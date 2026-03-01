@@ -16,7 +16,7 @@ inline uint32_t read_u32(std::ifstream &in){
     return v;
 }
 
-inline void writeString(std::ofstream &out, const std::string &s){
+inline void write_string(std::ofstream &out, const std::string &s){
     write_u32(out, static_cast<uint32_t>(s.size()));
     out.write(s.data(), static_cast<std::streamsize>(s.size()));
     if (!out) throw std::runtime_error("write_string failed");
