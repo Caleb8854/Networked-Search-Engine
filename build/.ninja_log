@@ -3,3 +3,10 @@
 748	1328	7939697579177579	searchcore/searchcore.cp313-win_amd64.pyd	c396198519d7b1da
 32	3015	7941128827890700	searchcore/CMakeFiles/test_token.dir/test.cpp.obj	f6528540610a4195
 3017	3877	7941128857742219	searchcore/test_token.exe	e8b60ab5d18804e
+57	6060	7941169059971552	searchcore/CMakeFiles/test_token.dir/test.cpp.obj	f6528540610a4195
+8	4103	7941170514329261	searchcore/CMakeFiles/test_token.dir/test.cpp.obj	f6528540610a4195
+4105	4787	7941170555352576	searchcore/test_token.exe	e8b60ab5d18804e
+6	4223	7941176922529573	searchcore/CMakeFiles/test_token.dir/test.cpp.obj	f6528540610a4195
+4244	4748	7941176964915111	searchcore/test_token.exe	e8b60ab5d18804e
+8	4452	7941179801556214	searchcore/CMakeFiles/test_token.dir/test.cpp.obj	f6528540610a4195
+4454	5159	7941179845982778	searchcore/test_token.exe	e8b60ab5d18804e

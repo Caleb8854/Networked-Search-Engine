@@ -32,6 +32,7 @@ private:
     static void writePostings(const InvertedIndex&, const fs::path&, const fs::path&);
     static void writeTermdf(const InvertedIndex&, const fs::path&);
     static void writeMetaJson(const SegmentMeta&, const fs::path&);
+    static void writeDeleted(const fs::path&);
     static fs::path makeNewSegmentDir(const fs::path&);
 };
 
@@ -130,6 +131,7 @@ inline SegmentMeta SegmentWriter::flush(const InvertedIndex& idx, const std::str
     writePostings(idx, segDir / "postings.bin", segDir / "postings.idx");
     writeTermdf(idx, segDir / "termdf.bin");
     writeMetaJson(meta, segDir / "meta.json");
+    writeDeleted(segDir / "deleted.bin");
 
     return meta;
 }
@@ -155,4 +157,10 @@ inline fs::path SegmentWriter::makeNewSegmentDir(const fs::path& segmentRoot){
     fs::path segDir = segmentRoot / ss.str();
     fs::create_directories(segDir);
     return segDir;
+}
+
+inline void SegmentWriter::writeDeleted(const fs::path& path){
+    std::ofstream out(path, std::ios::binary);
+    if(!out) throw std::runtime_error("Failed to open deleted.bin");
+    write_u32(out, 0);
 }

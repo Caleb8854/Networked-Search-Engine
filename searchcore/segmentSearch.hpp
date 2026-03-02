@@ -40,6 +40,10 @@ public:
         for(auto& s : segments_) s.loadMeta();
     }
 
+    void refreshDeleted(){
+        for(auto& s : segments_) s.loadDeleted();
+    }
+
     std::vector<Hit> searchBM25(const std::string& query, size_t k = 10, double k1 = 1.2, double b = 0.75) const{
         std::vector<std::string> qterms;
         tokenizeLower(query, qterms);
@@ -74,6 +78,7 @@ public:
                 const auto& plist = seg.getPostings(term);
 
                 for(const auto& [docId, tf_u32] : plist) {
+                    if(seg.isDeleted(docId)) continue;
                     if(tf_u32 == 0) continue;
                     double dl = std::max(1.0, static_cast<double>(seg.docLen(docId)));
                     double tf = static_cast<double>(tf_u32);
@@ -95,6 +100,9 @@ public:
 
             const DocKey& key = kv.first;
             const auto& seg = segments_[key.seg];
+
+            if(seg.isDeleted(key.doc)) continue;
+
             DocMeta m = seg.docMeta(key.doc);
             hits.push_back(Hit{kv.second, key.doc, m.title, m.path});
         }

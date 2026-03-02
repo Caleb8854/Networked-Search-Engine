@@ -5,12 +5,14 @@
 #include <string>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <utility>
 #include <filesystem>
 
 #include "binio.hpp"
 #include "index.hpp"
+#include "segmentOps.hpp"
 
 namespace fs = std::filesystem;
 
@@ -22,6 +24,7 @@ public:
           postingsIdx(dir / "postings.idx") {}
 
     void loadMeta();
+    void loadDeleted();
 
     const std::vector<std::pair<uint32_t,uint32_t>>& getPostings(const std::string& term) const;
 
@@ -39,7 +42,10 @@ public:
         auto it = docs.find(docId);
         return (it == docs.end()) ? DocMeta{} : it->second;
     }
->>>>>>> f237ee8 (only loads requested term postings which uses less memory)
+
+    bool isDeleted(uint32_t docId) const {
+        return deleted.count(docId) != 0;
+    }
 
 private:
     fs::path dir;
@@ -57,10 +63,13 @@ private:
 
     mutable std::ifstream postingsStream;
 
+    std::unordered_set<uint32_t> deleted;
+
     void readDocs();
     void readDoclen();
     void readTermdf();
     void readPostingsIndex();
+    void readDeleted();
 };
 
 inline void SegmentReader::readDocs() {
@@ -131,6 +140,8 @@ inline void SegmentReader::loadMeta() {
 
     readDocs();
     readDoclen();
+
+    readDeleted();
     
     sumDoclen = 0;
     for(const auto& kv : doclen) sumDoclen += kv.second;
@@ -174,4 +185,21 @@ inline const std::vector<std::pair<uint32_t,uint32_t>>& SegmentReader::getPostin
 
     auto [insIt, ok] = cache.emplace(term, std::move(plist));
     return insIt->second;
+}
+
+inline void SegmentReader::readDeleted(){
+    std::ifstream in(dir / "deleted.bin", std::ios::binary);
+    deleted.clear();
+
+    if(!in) return;
+
+    uint32_t n = read_u32(in);
+    deleted.reserve(n);
+    for(uint32_t i = 0; i< n; i++){
+        deleted.insert(read_u32(in));
+    }
+}
+
+inline void SegmentReader::loadDeleted(){
+    deleted = SegmentOps::readDeletedSet(std::filesystem::path(dir));
 }
