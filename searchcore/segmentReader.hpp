@@ -74,7 +74,6 @@ private:
     void readDoclen();
     void readTermdf();
     void readPostingsIndex();
-    void readDeleted();
 };
 
 inline void SegmentReader::readDocs() {
@@ -146,7 +145,7 @@ inline void SegmentReader::loadMeta() {
     readDocs();
     readDoclen();
 
-    readDeleted();
+    loadDeleted();
     
     sumDoclen = 0;
     for(const auto& [docId, dl] : doclen) {
@@ -192,19 +191,6 @@ inline const std::vector<std::pair<uint32_t,uint32_t>>& SegmentReader::getPostin
 
     auto [insIt, ok] = cache.emplace(term, std::move(plist));
     return insIt->second;
-}
-
-inline void SegmentReader::readDeleted(){
-    std::ifstream in(dir / "deleted.bin", std::ios::binary);
-    deleted.clear();
-
-    if(!in) return;
-
-    uint32_t n = read_u32(in);
-    deleted.reserve(n);
-    for(uint32_t i = 0; i< n; i++){
-        deleted.insert(read_u32(in));
-    }
 }
 
 inline void SegmentReader::loadDeleted(){

@@ -91,20 +91,6 @@ inline void collectTerms(const SegmentReader& seg, std::unordered_set<std::strin
     }
 }
 
-inline void mergePostingListsFiltered(const std::vector<std::pair<uint32_t,uint32_t>>& a, const std::vector<std::pair<uint32_t,uint32_t>>& b, const SegmentReader& segA, const SegmentReader& segB, std::vector<std::pair<uint32_t,uint32_t>>& out) {
-    out.clear();
-    out.reserve(a.size() + b.size());
-
-    for (const auto& [docId, tf] : a) {
-        if (segA.isDeleted(docId)) continue;
-        out.push_back({docId, tf});
-    }
-    for (const auto& [docId, tf] : b) {
-        if (segB.isDeleted(docId)) continue;
-        out.push_back({docId, tf});
-    }
-}
-
 inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, const fs::path& segDirA, const fs::path& segDirB) {
     SegmentReader A(segDirA.string());
     SegmentReader B(segDirB.string());
