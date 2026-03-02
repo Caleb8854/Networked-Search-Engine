@@ -25,6 +25,7 @@ public:
 
     void loadMeta();
     void loadDeleted();
+    static std::unordered_map<std::string, uint32_t> loadIndexedPaths(const fs::path&);
 
     const std::vector<std::pair<uint32_t,uint32_t>>& getPostings(const std::string& term) const;
 
@@ -46,6 +47,10 @@ public:
     bool isDeleted(uint32_t docId) const {
         return deleted.count(docId) != 0;
     }
+
+    const std::unordered_map<uint32_t, DocMeta>& allDocs() const { return docs; }
+    const std::unordered_map<uint32_t, uint32_t>& allDoclen() const { return doclen; }
+    const std::unordered_map<std::string, uint32_t>& allTermdf() const { return termdf; }
 
 private:
     fs::path dir;
@@ -144,7 +149,9 @@ inline void SegmentReader::loadMeta() {
     readDeleted();
     
     sumDoclen = 0;
-    for(const auto& kv : doclen) sumDoclen += kv.second;
+    for(const auto& [docId, dl] : doclen) {
+        if(!isDeleted(docId)) sumDoclen += dl;
+    }
 
     readTermdf();
 
@@ -202,4 +209,38 @@ inline void SegmentReader::readDeleted(){
 
 inline void SegmentReader::loadDeleted(){
     deleted = SegmentOps::readDeletedSet(std::filesystem::path(dir));
+}
+
+inline std::unordered_map<std::string, uint32_t> SegmentReader::loadIndexedPaths(const fs::path& segRoot){
+    std::unordered_map<std::string, uint32_t> seen;
+
+    if (!fs::exists(segRoot) || !fs::is_directory(segRoot)) {
+        return seen;
+    }
+
+    for (const auto& e : fs::directory_iterator(segRoot)) {
+        if (!e.is_directory()) continue;
+
+        const std::string name = e.path().filename().string();
+        if (name.rfind("seg_", 0) != 0) continue;
+
+        try {
+            SegmentReader r(e.path().string());
+            r.loadMeta();
+            r.loadDeleted();
+
+            for (const auto& kv : r.allDocs()) {
+                const uint32_t docId = kv.first;
+                const DocMeta& dm = kv.second;
+
+                if(r.isDeleted(docId)) continue;
+
+                seen[SegmentOps::normPath(dm.path)]++;
+            }
+        } catch (...) {
+            continue;
+        }
+    }
+
+    return seen;
 }
