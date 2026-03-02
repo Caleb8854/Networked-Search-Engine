@@ -33,15 +33,15 @@ struct DocKeyHash {
 
 class SegmentSearch {
 public:
-    explicit SegmentSearch(std::vector<SegmentReader> segs)
+    explicit SegmentSearch(std::vector<SegmentReader*>& segs)
         : segments_(std::move(segs)) {}
     
     void loadAllMeta(){
-        for(auto& s : segments_) s.loadMeta();
+        for(auto& s : segments_) s->loadMeta();
     }
 
     void refreshDeleted(){
-        for(auto& s : segments_) s.loadDeleted();
+        for(auto& s : segments_) s->loadDeleted();
     }
 
     std::vector<Hit> searchBM25(const std::string& query, size_t k = 10, double k1 = 1.2, double b = 0.75) const{
@@ -53,8 +53,8 @@ public:
         uint64_t sumdl = 0;
 
         for(const auto& seg : segments_){
-            n += seg.docCount();
-            sumdl += seg.sumDocLen();
+            n += seg->docCount();
+            sumdl += seg->sumDocLen();
         }
         if (n <= 0.0) return {};
 
@@ -67,7 +67,7 @@ public:
         for(const auto& term : qterms) {
             double df = 0.0;
             for(const auto& seg : segments_){
-                df += seg.df(term);
+                df += seg->df(term);
             }
             if(df <= 0.0) continue;
 
@@ -75,12 +75,12 @@ public:
 
             for(size_t si = 0; si < segments_.size(); si++){
                 const auto& seg = segments_[si];
-                const auto& plist = seg.getPostings(term);
+                const auto& plist = seg->getPostings(term);
 
                 for(const auto& [docId, tf_u32] : plist) {
-                    if(seg.isDeleted(docId)) continue;
+                    if(seg->isDeleted(docId)) continue;
                     if(tf_u32 == 0) continue;
-                    double dl = std::max(1.0, static_cast<double>(seg.docLen(docId)));
+                    double dl = std::max(1.0, static_cast<double>(seg->docLen(docId)));
                     double tf = static_cast<double>(tf_u32);
 
                     double norm = (1.0 - b) + b * (dl / avgdl);
@@ -101,9 +101,9 @@ public:
             const DocKey& key = kv.first;
             const auto& seg = segments_[key.seg];
 
-            if(seg.isDeleted(key.doc)) continue;
+            if(seg->isDeleted(key.doc)) continue;
 
-            DocMeta m = seg.docMeta(key.doc);
+            DocMeta m = seg->docMeta(key.doc);
             hits.push_back(Hit{kv.second, key.doc, m.title, m.path});
         }
         std::sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) {
@@ -114,5 +114,5 @@ public:
     }
 
 private:
-    std::vector<SegmentReader> segments_;
+    std::vector<SegmentReader*> segments_;
 };

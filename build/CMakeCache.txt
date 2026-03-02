@@ -17,8 +17,9 @@
 //Path to a program.
 CMAKE_AR:FILEPATH=C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/lib.exe
 
-//No help, variable specified on the command line.
-CMAKE_BUILD_TYPE:STRING=Debug
+//Choose the type of build, options are: None Debug Release RelWithDebInfo
+// MinSizeRel ...
+CMAKE_BUILD_TYPE:STRING=Release
 
 //CXX compiler
 CMAKE_CXX_COMPILER:FILEPATH=C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe
@@ -59,8 +60,8 @@ CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO:STRING=/debug /INCREMENTAL
 //Enable/Disable output of build database during the build.
 CMAKE_EXPORT_BUILD_DATABASE:BOOL=
 
-//No help, variable specified on the command line.
-CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE
+//Enable/Disable output of compile commands during generation.
+CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=
 
 //Value Computed by CMake.
 CMAKE_FIND_PACKAGE_REDIRECTS_DIR:STATIC=C:/Users/calca/Documents/Database/build/CMakeFiles/pkgRedirects
@@ -193,7 +194,7 @@ ProjectRoot_IS_TOP_LEVEL:STATIC=ON
 ProjectRoot_SOURCE_DIR:STATIC=C:/Users/calca/Documents/Database
 
 //pybind11 CMake directory
-pybind11_DIR:PATH=C:/Users/calca/AppData/Local/Programs/Python/Python313/Lib/site-packages/pybind11/share/cmake/pybind11
+pybind11_DIR:PATH=C:/Users/calca/Documents/Database/.venv/Lib/site-packages/pybind11/share/cmake/pybind11
 
 
 ########################
@@ -246,6 +247,8 @@ CMAKE_EXE_LINKER_FLAGS_RELEASE-ADVANCED:INTERNAL=1
 CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_EXPORT_BUILD_DATABASE
 CMAKE_EXPORT_BUILD_DATABASE-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CMAKE_EXPORT_COMPILE_COMMANDS
+CMAKE_EXPORT_COMPILE_COMMANDS-ADVANCED:INTERNAL=1
 //Name of external makefile project generator.
 CMAKE_EXTRA_GENERATOR:INTERNAL=
 //Name of generator.
@@ -325,11 +328,11 @@ CMAKE_STATIC_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_VERBOSE_MAKEFILE
 CMAKE_VERBOSE_MAKEFILE-ADVANCED:INTERNAL=1
 //Details about finding Python3
-FIND_PACKAGE_MESSAGE_DETAILS_Python3:INTERNAL=[C:/Users/calca/AppData/Local/Programs/Python/Python313/python.exe][C:/Users/calca/AppData/Local/Programs/Python/Python313/libs/python313.lib][C:/Users/calca/AppData/Local/Programs/Python/Python313/Include][found components: Interpreter Development Development.Module Development.Embed ][v3.13.7()]
+FIND_PACKAGE_MESSAGE_DETAILS_Python3:INTERNAL=[C:/Users/calca/Documents/Database/.venv/Scripts/python.exe][C:/Users/calca/AppData/Local/Programs/Python/Python313/libs/python313.lib][C:/Users/calca/AppData/Local/Programs/Python/Python313/Include][found components: Interpreter Development Development.Module Development.Embed ][v3.13.7()]
 //Test HAS_MSVC_GL_LTCG
 HAS_MSVC_GL_LTCG:INTERNAL=1
 //Python executable during the last CMake run
-PYBIND11_PYTHON_EXECUTABLE_LAST:INTERNAL=C:/Users/calca/AppData/Local/Programs/Python/Python313/python.exe
+PYBIND11_PYTHON_EXECUTABLE_LAST:INTERNAL=C:/Users/calca/Documents/Database/.venv/Scripts/python.exe
 //Python debug status
 PYTHON_IS_DEBUG:INTERNAL=0
 PYTHON_MODULE_DEBUG_POSTFIX:INTERNAL=
@@ -343,16 +346,14 @@ _Python3_DEVELOPMENT_MODULE_SIGNATURE:INTERNAL=fc7ae3f4f2741ac45238a64f94781dce
 //Development reason failure
 _Python3_Development_REASON_FAILURE:INTERNAL=
 //Path to a program.
-_Python3_EXECUTABLE:INTERNAL=C:/Users/calca/AppData/Local/Programs/Python/Python313/python.exe
+_Python3_EXECUTABLE:INTERNAL=C:/Users/calca/Documents/Database/.venv/Scripts/python.exe
 //Path to a program.
 _Python3_EXECUTABLE_DEBUG:INTERNAL=_Python3_EXECUTABLE_DEBUG-NOTFOUND
 //Path to a file.
 _Python3_INCLUDE_DIR:INTERNAL=C:/Users/calca/AppData/Local/Programs/Python/Python313/Include
 //Python3 Properties
-_Python3_INTERPRETER_PROPERTIES:INTERNAL=Python;3;13;7;64;<none>;cp313-win_amd64;;C:\Users\calca\AppData\Local\Programs\Python\Python313\Lib;C:\Users\calca\AppData\Local\Programs\Python\Python313\Lib;C:\Users\calca\AppData\Local\Programs\Python\Python313\Lib\site-packages;C:\Users\calca\AppData\Local\Programs\Python\Python313\Lib\site-packages
-_Python3_INTERPRETER_SIGNATURE:INTERNAL=723d93572fb6afcd440d2ef3f939d6d3
-//Interpreter reason failure
-_Python3_Interpreter_REASON_FAILURE:INTERNAL=
+_Python3_INTERPRETER_PROPERTIES:INTERNAL=Python;3;13;7;64;<none>;cp313-win_amd64;;C:\Users\calca\AppData\Local\Programs\Python\Python313\Lib;C:\Users\calca\Documents\Database\.venv\Lib;C:\Users\calca\Documents\Database\.venv\Lib\site-packages;C:\Users\calca\Documents\Database\.venv\Lib\site-packages
+_Python3_INTERPRETER_SIGNATURE:INTERNAL=068b631a6fb2316c201c3ef9e2300592
 //Path to a library.
 _Python3_LIBRARY_DEBUG:INTERNAL=_Python3_LIBRARY_DEBUG-NOTFOUND
 //Path to a library.
@@ -362,5 +363,5 @@ _Python3_NumPy_REASON_FAILURE:INTERNAL=
 //Path to a library.
 _Python3_RUNTIME_LIBRARY_RELEASE:INTERNAL=C:/Users/calca/AppData/Local/Programs/Python/Python313/python313.dll
 //Directories where pybind11 and possibly Python headers are located
-pybind11_INCLUDE_DIRS:INTERNAL=C:/Users/calca/AppData/Local/Programs/Python/Python313/Lib/site-packages/pybind11/include;C:/Users/calca/AppData/Local/Programs/Python/Python313/Include
+pybind11_INCLUDE_DIRS:INTERNAL=C:/Users/calca/Documents/Database/.venv/Lib/site-packages/pybind11/include;C:/Users/calca/AppData/Local/Programs/Python/Python313/Include
 

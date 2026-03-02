@@ -1,437 +1,196 @@
-from collections import Counter, defaultdict
-from dataclasses import dataclass
+from __future__ import annotations
+
 import json
-import math
 import os
-import pickle
-import re
-import shutil
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
+import searchcore
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+SEGMENTS_DIR = PROJECT_ROOT / "segments"
+MANIFEST_PATH = SEGMENTS_DIR / "manifest.json"
+DOCS_DIR = PROJECT_ROOT / "docs"
 
 
-@dataclass
-class Document:
-    id: int
+@dataclass(frozen=True)
+class SearchHit:
+    score: float
+    doc_id: int
     title: str
     path: str
 
-WORD = re.compile(r"[a-z0-9]+")
 
-def tokenize(s: str) -> List[str]:
-    return WORD.findall(s.lower())
+class ManifestStore:
+    def __init__(self, segments_dir: Path, manifest_path: Path):
+        self.segments_dir = segments_dir
+        self.manifest_path = manifest_path
+        self.segments_dir.mkdir(parents=True, exist_ok=True)
+        self.manifest: Dict[str, Any] = self._load_or_init()
 
-class Segment:
-    def __init__(self, segDir: str):
-        self.segDir = segDir
-        self._docs: Optional[Dict[int, Document]] = None
-        self._postings: Optional[Dict[str, Dict[int, int]]] = None
-        self._doclen: Optional[Dict[int, int]] = None
-        self._termdf: Optional[Dict[str, int]] = None
-        self._meta: Optional[Dict[str, Any]] = None
+    def _load_or_init(self) -> Dict[str, Any]:
+        if self.manifest_path.exists():
+            return json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        return {"version": 2, "nextDocId": 1}
 
-    def loadPickle(self, name: str):
-        path = os.path.join(self.segDir, name)
-        with open(path, "rb") as f:
-            return pickle.load(f)
+    def save_atomic(self) -> None:
+        tmp = self.manifest_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self.manifest, indent=2), encoding="utf-8")
+        os.replace(tmp, self.manifest_path)
 
-    def loadJson(self, name: str):
-        path = os.path.join(self.segDir, name)
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+    def alloc_doc_id_block(self, n: int) -> int:
+        start = int(self.manifest.get("nextDocId", 1))
+        self.manifest["nextDocId"] = start + int(n)
+        return start
 
-    @property
-    def docs(self) -> Dict[int, Document]:
-        if self._docs is None:
-            self._docs = self.loadPickle("docs.pkl")
-        return self._docs
+def _list_segment_dirs(segments_root: Path) -> List[Path]:
+    if not segments_root.exists():
+        return []
+    segs = [p for p in segments_root.iterdir() if p.is_dir() and p.name.startswith("seg_")]
+    segs.sort(key=lambda p: p.name)
+    return segs
 
-    @property
-    def postings(self) -> Dict[str, Dict[int, int]]:
-        if self._postings is None:
-            self._postings = self.loadPickle("postings.pkl")
-        return self._postings
 
-    @property
-    def doclen(self) -> Dict[int, int]:
-        if self._doclen is None:
-            self._doclen = self.loadPickle("doclen.pkl")
-        return self._doclen
+class EngineController:
+    def __init__(self, project_root: Path):
+        self.project_root = project_root
+        self.store = ManifestStore(SEGMENTS_DIR, MANIFEST_PATH)
 
-    @property
-    def termdf(self) -> Dict[str, int]:
-        if self._termdf is None:
-            self._termdf = self.loadPickle("termdf.pkl")
-        return self._termdf
+    def _require(self, *names: str):
+        for n in names:
+            if hasattr(searchcore, n):
+                return getattr(searchcore, n)
+        raise RuntimeError(
+            "searchcore is missing an expected function. "
+            f"Tried: {', '.join(names)}"
+        )
 
-    @property
-    def meta(self) -> Dict[str, Any]:
-        if self._meta is None:
-            self._meta = self.loadJson("meta.json")
-        return self._meta
+    def list_segments(self) -> List[str]:
+        return [p.name for p in _list_segment_dirs(SEGMENTS_DIR)]
 
-class SegmentWriter:
-    def __init__(self):
-        self.docs: Dict[int, Document] = {}
-        self.postings: Dict[str, Dict[int, int]] = defaultdict(dict)
-        self.doclen: Dict[int, int] = {}
+    def _segment_paths(self) -> List[str]:
+        return [str(p) for p in _list_segment_dirs(SEGMENTS_DIR)]
 
-    def addDoc(self, docId: int, title: str, path: str, text: str) -> None:
-        self.docs[docId] = Document(id=docId, title=title, path=path)
-        tokens = tokenize(title + " " + text)
-        self.doclen[docId] = len(tokens)
-        freqs = Counter(tokens)
-        for term, freq in freqs.items():
-            self.postings[term][docId] = freq
+    def load_indexed_paths(self) -> Dict[str, int]:
+        fn = self._require("load_indexed_paths")
+        out = fn(str(SEGMENTS_DIR))
+        return {str(k): int(v) for k, v in out.items()}
 
-    def flush(self, segDir: str) -> None:
-        os.makedirs(segDir, exist_ok=False)
+    def index_folder(self, docs_dir: Path, threads: int = 0) -> int:
+        if not docs_dir.is_dir():
+            raise FileNotFoundError(f"Docs folder not found: {docs_dir}")
 
-        termdf = {term: len(docMap) for term, docMap in self.postings.items()}
+        indexed_live = self.load_indexed_paths()
 
-        with open(os.path.join(segDir, "docs.pkl"), "wb") as f:
-            pickle.dump(self.docs, f)
+        paths: List[str] = []
+        for p in sorted(docs_dir.iterdir()):
+            if not p.is_file() or p.suffix.lower() != ".txt":
+                continue
+            full = str(p.resolve())
+            if indexed_live.get(full, 0) > 0:
+                continue
+            paths.append(full)
 
-        with open(os.path.join(segDir, "postings.pkl"), "wb") as f:
-            pickle.dump(dict(self.postings), f)
-
-        with open(os.path.join(segDir, "doclen.pkl"), "wb") as f:
-            pickle.dump(self.doclen, f)
-
-        with open(os.path.join(segDir, "termdf.pkl"), "wb") as f:
-            pickle.dump(termdf, f)
-
-        meta = {
-            "docCount": len(self.docs),
-            "created_at_unix": int(time.time()),
-        }
-        with open(os.path.join(segDir, "meta.json"), "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=2)
-
-class SearchEngine:
-    def __init__(self, root: str = "segments"):
-        self.root = root
-        self.manifestPath = os.path.join(self.root, "manifest.json")
-        os.makedirs(self.root, exist_ok=True)
-        self.manifest = self.loadOrInitManifest()
-        self.segments: List[Segment] = [Segment(os.path.join(self.root,segName)) for segName in self.manifest["segments"]]
-        self.seen = set(self.manifest["seen"])
-        self.deleted = set(self.manifest["deletedDocIds"])
-        self.buildDocToSeg()
-        self.pathToDoc = dict(self.manifest["pathToDocId"])
-        self.docToPath = {v: k for k, v in self.pathToDoc.items()}
-        
-    def loadOrInitManifest(self) -> Dict[str, Any]:
-        if os.path.exists(self.manifestPath):
-            with open(self.manifestPath, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
-                if "pathToDocId" not in manifest:
-                    manifest["pathToDocId"] = {}
-                if "deletedDocsId" not in manifest:
-                    manifest["deletedDocsId"] = []
-                if "seen" not in manifest:
-                    manifest["seen"] = []
-                if "nextSegmentId" not in manifest:
-                    manifest["nextSegmentId"] = 1
-                return manifest
-        manifest = {"version": 1, "segments": [], "nextId": 1, "nextSegmentId": 1, "totalDocs": 0, "seen": [], "deletedDocIds": [], "pathToDocId": {}}
-        self.writeManifest(manifest)
-        return manifest
-    
-    def writeManifest(self, manifest: Dict[str, Any]) -> None:
-        tmp = self.manifestPath + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, indent=2)
-        os.replace(tmp, self.manifestPath)
-
-    def newSegmentName(self) -> str:
-        segId = self.manifest["nextSegmentId"]
-        self.manifest["nextSegmentId"] += 1
-        return f"seg_{segId:06d}"
-    
-    def buildDocToSeg(self) -> None:
-        self.docToSeg: Dict[int,int] = {}
-        for i, seg in enumerate(self.segments):
-            for docId in seg.docs.keys():
-                if docId in self.deleted:
-                    continue
-                self.docToSeg[docId] = i
-
-    def globalDf(self, term: str) -> int:
-        docFreq = 0
-        for seg in self.segments:
-            docFreq += seg.termdf.get(term,0)
-        return docFreq
-    
-    def docCountInSegment(self, seg: Segment) -> int:
-        live = 0
-        for docId in seg.docs.keys():
-            if docId not in self.deleted:
-                live += 1
-        return live
-
-    def listSegments(self) -> List[Tuple[str,int]]:
-        out = []
-        for seg in self.segments:
-            segName = os.path.basename(seg.segDir)
-            out.append((segName, int(seg.meta["docCount"])))
-        return out
-    
-    def mergeSmallest(self) -> int:
-        if len(self.segments) < 2:
-            return 0
-        segInfos = []
-        for seg in self.segments:
-            segInfos.append((int(seg.meta["docCount"]),seg))
-        segInfos.sort(key=lambda x: x[0])
-        a = segInfos[0][1]
-        b = segInfos[1][1]
-        return self.mergeSegments(os.path.basename(a.segDir),os.path.basename(b.segDir))
-    
-    def mergeSegments(self, segA: str, segB: str) -> int:
-        a = None
-        b = None
-        for seg in self.segments:
-            name = os.path.basename(seg.segDir)
-            if name == segA:
-                a = seg
-            elif name == segB:
-                b = seg
-        if a is None or b is None:
-            raise ValueError(f"Could not find both segments: {segA}, {segB}")
-        if segA == segB:
-            raise ValueError("Cannot merge the same segment")
-            
-        docs = {}
-        for dId, d in a.docs.items():
-            if dId not in self.deleted:
-                docs[dId] = d
-        for dId, d in b.docs.items():
-            if dId not in self.deleted:
-                docs[dId] = d
-
-        doclen = {}
-        for dId, dl in a.doclen.items():
-            if dId not in self.deleted and dId in docs:
-                doclen[dId] = dl
-        for dId, dl in b.doclen.items():
-            if dId not in self.deleted and dId in docs:
-                doclen[dId] = dl
-
-        mergedPostings = defaultdict(dict)
-        for term, docMap in a.postings.items():
-            for dId, tf in docMap.items():
-                if dId not in self.deleted:
-                    mergedPostings[term][dId] = tf
-        for term, docMap in b.postings.items():
-            for dId, tf in docMap.items():
-                if dId not in self.deleted:
-                    mergedPostings[term][dId] = tf
-
-        mergedWriter = SegmentWriter()
-        mergedWriter.docs = docs
-        mergedWriter.doclen = doclen
-        mergedWriter.postings = mergedPostings
-
-        mergedName = self.newSegmentName()
-        mergedDir = os.path.join(self.root, mergedName)
-        mergedWriter.flush(mergedDir)
-
-        mergedCount = len(docs)
-
-        self.manifest["segments"] = [s for s in self.manifest["segments"] if s not in (segA, segB)]
-        self.manifest["segments"].append(mergedName)
-
-        self.segments = [seg for seg in self.segments if os.path.basename(seg.segDir) not in (segA, segB)]
-        self.segments.append(Segment(mergedDir))
-
-        self.buildDocToSeg()
-
-        self.manifest["totalDocs"] = len(self.docToSeg)
-
-        self.writeManifest(self.manifest)
-
-        shutil.rmtree(os.path.join(self.root, segA), ignore_errors=True)
-        shutil.rmtree(os.path.join(self.root, segB), ignore_errors=True)
-
-        return mergedCount
-    
-    def autoMerge(self, maxSegments: int = 10) -> None:
-        while len(self.segments) > maxSegments:
-            mergedDocs = self.mergeSmallest()
-            if mergedDocs == 0:
-                break
-        return
-    
-    def compactOne(self) -> int:
-        if len(self.segments) != 1:
+        if not paths:
             return 0
 
-        seg = self.segments[0]
-        segName = os.path.basename(seg.segDir)
+        start_doc_id = self.store.alloc_doc_id_block(len(paths))
 
-        docs = {dId: d for dId, d in seg.docs.items() if dId not in self.deleted}
-        doclen = {dId: dl for dId, dl in seg.doclen.items() if dId in docs}
+        build_fn = self._require("build_segment_parallel")
 
-        mergedPostings = defaultdict(dict)
-        for term, docMap in seg.postings.items():
-            for dId, tf in docMap.items():
-                if dId in docs:
-                    mergedPostings[term][dId] = tf
+        try:
+            _meta = build_fn(paths, int(start_doc_id), str(SEGMENTS_DIR), int(threads))
+        except TypeError:
+            _meta = build_fn(paths, int(start_doc_id), str(SEGMENTS_DIR))
 
-        w = SegmentWriter()
-        w.docs = docs
-        w.doclen = doclen
-        w.postings = mergedPostings
+        self.store.save_atomic()
+        return len(paths)
 
-        newName = self.newSegmentName()
-        newDir = os.path.join(self.root, newName)
-        w.flush(newDir)
+    def delete_path(self, path: str) -> int:
+        p = Path(path)
+        if not p.is_absolute():
+            p = (self.project_root / p).resolve()
+        norm = str(p)
 
-        self.manifest["segments"] = [newName]
-        self.segments = [Segment(newDir)]
-        self.buildDocToSeg()
-        self.manifest["totalDocs"] = len(self.docToSeg)
-        self.writeManifest(self.manifest)
+        delete_fn = self._require("delete_by_path_all")
+        return int(delete_fn(str(SEGMENTS_DIR), norm))
 
-        shutil.rmtree(os.path.join(self.root, segName), ignore_errors=True)
+    def merge_smallest(self) -> int:
+        merge_fn = self._require("merge_smallest")
+        return int(merge_fn(str(SEGMENTS_DIR)))
 
-        return len(docs)
-    
-    def persistDelete(self) -> None:
-        self.manifest["deletedDocIds"] = list(self.deleted)
-        self.manifest["pathToDocId"] = self.pathToDoc
-        self.manifest["totalDocs"] = len(self.docToSeg)
-        self.manifest["seen"] = list(self.seen)
-        self.writeManifest(self.manifest)
-
-    def deleteDoc(self, docId: int) -> bool:
-        if docId in self.deleted:
-            return False
-        if docId not in self.docToSeg:
-            return False
-        self.deleted.add(docId)
-        path = self.docToPath.get(docId)
-        if path is not None:
-            if path in self.seen:
-                self.seen.remove(path)
-            if path in self.pathToDoc:
-                del self.pathToDoc[path]
-            del self.docToPath[docId]
-        self.buildDocToSeg()
-        self.persistDelete()
-        return True
-    
-    def deletePath(self, path: str) -> bool:
-        path = os.path.normpath(path)
-        docId = self.pathToDoc.get(path)
-        if docId is None:
-            return False
-        return self.deleteDoc(int(docId))
-
-    def indexFolder(self, folder: str) -> int:
-        if not os.path.isdir(folder):
-            raise FileNotFoundError(f"Folder not found {folder}")
-        writer = SegmentWriter()
-        added = 0
-
-        for name in sorted(os.listdir(folder)):
-            if not name.lower().endswith(".txt"):
-                continue
-            path = os.path.join(folder, name)
-            if path in self.seen:
-                continue
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                text = f.read()
-            title = os.path.splitext(name)[0].replace("_", " ")
-            docId = self.manifest["nextId"]
-            self.pathToDoc[path] = docId
-            self.docToPath[docId] = path
-            if docId in self.deleted:
-                self.deleted.remove(docId)
-                continue
-            else:
-                writer.addDoc(docId=docId,title=title,path=path,text=text)
-            self.manifest["nextId"] += 1
-            self.seen.add(path)
-            added += 1
-
-        if added == 0:
-            return 0
-
-        segName = self.newSegmentName()
-        segDir = os.path.join(self.root, segName)
-
-        writer.flush(segDir)
-
-        self.manifest["segments"].append(segName)
-        self.manifest["totalDocs"] += added
-        self.manifest["seen"] = list(self.seen)
-        self.manifest["pathToDocId"] = self.pathToDoc
-        self.manifest["deletedDocIds"] = list(self.deleted)
-        self.writeManifest(self.manifest)
-
-        self.segments.append(Segment(segDir))
-
-        self.buildDocToSeg()
-        self.autoMerge(maxSegments=10)
-
-        return added
-    
-    def search(self, query: str, k: int = 10) -> List[Tuple[float,Document]]:
-        terms = tokenize(query)
-        if not terms:
+    def search(self, query: str, k: int = 10, k1: float = 1.2, b: float = 0.75) -> List[SearchHit]:
+        segs = self._segment_paths()
+        if not segs:
             return []
-        n = self.manifest["totalDocs"] or 1
 
-        candidates = set()
-        for seg in self.segments:
-            for t in terms:
-                candidates.update(seg.postings.get(t, {}).keys())
-        
-        results: List[Tuple[float,int,Document]] = []
-        for docId in candidates:
-            if docId in self.deleted:
-                continue
-            
-            score = 0.0
+        search_fn = self._require("search_bm25")
 
-            segIndex = self.docToSeg.get(docId)
-            if segIndex is None:
-                continue
+        try:
+            raw = search_fn(segs, str(query), int(k), float(k1), float(b))
+        except TypeError:
+            raw = search_fn(segs, str(query), int(k))
 
-            seg = self.segments[segIndex]
-            doc = seg.docs[docId]
-            doclen = seg.doclen.get(docId, 1)
+        out: List[SearchHit] = []
+        for score, doc_id, title, path in raw:
+            out.append(SearchHit(float(score), int(doc_id), str(title), str(path)))
+        return out[:k]
 
-            for t in terms:
-                tf = seg.postings.get(t, {}).get(docId, 0)
-                if tf == 0:
-                    continue
-                df = self.globalDf(t)
-                idf = math.log((n + 1) / (df + 1)) + 1.0
-                score += tf * idf
-            score /= math.sqrt(doclen)
-            results.append((score,docId,doc))
-        results.sort(reverse=True, key=lambda x: x[0])
-        return [(score, doc) for score, _, doc in results[:k]]
+    def stats(self) -> None:
+        segs = _list_segment_dirs(SEGMENTS_DIR)
+        print(f"Segments: {len(segs)}")
+        print(f"Next docId: {self.store.manifest.get('nextDocId', 1)}")
+        print(f"Docs dir: {DOCS_DIR}")
+        print()
+
+        for i, seg in enumerate(segs, start=1):
+            meta_path = seg / "meta.json"
+            doc_count = "?"
+            created = "?"
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    doc_count = meta.get("docCount", "?")
+                    created = meta.get("createdAtUnix", meta.get("created_at_unix", "?"))
+                except Exception:
+                    pass
+            print(f"  {i}. {seg.name}  docCount={doc_count}  createdAtUnix={created}")
     
-def main():
-    docs_folder = "docs"
-    engine = SearchEngine(root="segments")
+    def check_bindings(self) -> None:
+        expected = [
+            "build_segment_parallel",
+            "load_indexed_paths",
+            "search_bm25",
+            "delete_by_path_all",
+            "merge_smallest",
+        ]
+        available = [n for n in dir(searchcore) if not n.startswith("_")]
+        print("searchcore functions available:")
+        for n in available:
+            print("  ", n)
+        print()
+
+        missing = [n for n in expected if not hasattr(searchcore, n)]
+        if missing:
+            raise RuntimeError(f"Missing expected bindings: {missing}")
+        print("All expected bindings found")
+
+
+def main() -> None:
+    engine = EngineController(PROJECT_ROOT)
 
     print("CWD:", os.getcwd())
-    print("Segments:", len(engine.segments), "Total docs:", engine.manifest["totalDocs"])
-
+    print("Project root:", PROJECT_ROOT)
+    print("Segments dir:", SEGMENTS_DIR)
+    print("Docs dir:", DOCS_DIR)
     print("\nCommands:")
-    print("  :index      -> index docs/ as a NEW segment")
-    print("  :stats      -> show segment stats")
-    print("  :quit       -> exit")
-    print("  :merge      -> merge 2 smallest segments")
-    print("  :deleteid <id>       -> delete docId")
-    print("  :deletepath <path>   -> delete by file path")
-    print("  :deleted             -> show deleted count")
-    print("  :gc                  -> force merges until 1 segment (reclaims deletes)")
+    print("  :index [threads]        -> index docs/ into a NEW segment (skips duplicates)")
+    print("  :stats                  -> show manifest + segment meta stats")
+    print("  :deletepath <path>      -> tombstone by file path across segments")
+    print("  :merge                  -> merge two smallest segments (drops deletes)")
+    print("  :check                  -> verify C++ bindings are present")
+    print("  :quit                   -> exit")
     print("Or type a search query.\n")
 
     while True:
@@ -442,56 +201,30 @@ def main():
         if q == ":quit":
             break
 
-        if q == ":index":
-            n = engine.indexFolder(docs_folder)
-            print(f"Indexed {n} documents into a new segment. Total docs now: {engine.manifest['totalDocs']}")
+        if q.startswith(":index"):
+            parts = q.split()
+            threads = int(parts[1]) if len(parts) > 1 else 0
+            n = engine.index_folder(DOCS_DIR, threads=threads)
+            print(f"Indexed {n} docs into a new segment.")
             continue
+
         if q == ":stats":
-            print(f"Total live docs: {len(engine.docToSeg)}")
-            print(f"Total deleted docs: {len(engine.deleted)}")
-            print(f"Segment count: {len(engine.segments)}\n")
-            for i, seg in enumerate(engine.segments, start=1):
-                segName = os.path.basename(seg.segDir)
-                physical = len(seg.docs)
-                live = 0
-                for docId in seg.docs.keys():
-                    if docId not in engine.deleted:
-                        live += 1
-                print(f"  {i}. {segName}  physical={physical}  live={live}")
-            continue
-        if q == ":merge":
-            n = engine.mergeSmallest()
-            if n:
-                print(f"Merged segments into a new one with {n} docs.")
-            continue
-        if q.startswith(":deleteid "):
-            try:
-                docId = int(q.split(" ", 1)[1].strip())
-            except ValueError:
-                print("Usage: :deleteid <number>")
-                continue
-            ok = engine.deleteDocId(docId)
-            print("deleted" if ok else "not found/already deleted")
+            engine.stats()
             continue
 
         if q.startswith(":deletepath "):
             path = q.split(" ", 1)[1].strip()
-            ok = engine.deletePath(path)
-            print("deleted" if ok else "path not found")
+            affected = engine.delete_path(path)
+            print(f"deleted in {affected} segment(s)" if affected > 0 else "path not found / already deleted")
             continue
 
-        if q == ":deleted":
-            print(f"Deleted docs: {len(engine.deleted)}")
+        if q == ":merge":
+            live_docs = engine.merge_smallest()
+            print("No merge performed (need >=2 segments)." if live_docs == 0 else f"Merged; new segment liveDocs={live_docs}.")
             continue
 
-        if q == ":gc":
-            merges = 0
-            while len(engine.segments) > 1:
-                engine.mergeSmallest()
-                merges += 1
-            if len(engine.segments) == 1:
-                engine.compactOne()
-            print(f"GC done. merges={merges}, segments={len(engine.segments)}")
+        if q == ":check":
+            engine.check_bindings()
             continue
 
         results = engine.search(q, k=10)
@@ -499,9 +232,10 @@ def main():
             print("(no matches)")
             continue
 
-        for score, doc in results:
-            print(f"  {score:.3f}  {doc.id}  {doc.title}  [{doc.path}]")
+        for hit in results:
+            print(f"  {hit.score:.3f}  {hit.doc_id}  {hit.title}  [{hit.path}]")
         print()
+
 
 if __name__ == "__main__":
     main()
