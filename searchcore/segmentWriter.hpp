@@ -27,12 +27,12 @@ public:
     static SegmentMeta flush(const InvertedIndex& idx, const std::string& segmentRoot);
 
 private:
-    static void writeDocs(const InvertedIndex& idx, const fs::path& path);
-    static void writeDoclen(const InvertedIndex& idx, const fs::path& path);
-    static void writePostings(const InvertedIndex& idx, const fs::path& path, const fs::path& postingsIdxPath);
-    static void writeTermdf(const InvertedIndex& idx, const fs::path& path);
-    static void writeMetaJson(const SegmentMeta& meta, const fs::path& path);
-    static fs::path makeNewSegmentDir(const fs::path& segmentRoot);
+    static void writeDocs(const InvertedIndex&, const fs::path&);
+    static void writeDoclen(const InvertedIndex&, const fs::path&);
+    static void writePostings(const InvertedIndex&, const fs::path&, const fs::path&);
+    static void writeTermdf(const InvertedIndex&, const fs::path&);
+    static void writeMetaJson(const SegmentMeta&, const fs::path&);
+    static fs::path makeNewSegmentDir(const fs::path&);
 };
 
 inline void SegmentWriter::writeDocs(const InvertedIndex& idx, const fs::path& path){
@@ -40,11 +40,9 @@ inline void SegmentWriter::writeDocs(const InvertedIndex& idx, const fs::path& p
     if(!out) throw std::runtime_error("Failed to open docs.bin");
     write_u32(out, static_cast<uint32_t>(idx.docs.size()));
     for(const auto& kv : idx.docs){
-        uint32_t docId = kv.first;
-        const DocMeta& m = kv.second;
-        write_u32(out, docId);
-        write_string(out, m.title);
-        write_string(out, m.path);
+        write_u32(out, kv.first);
+        write_string(out, kv.second.title);
+        write_string(out, kv.second.path);
     }
 }
 
@@ -70,16 +68,13 @@ inline void SegmentWriter::writePostings(const InvertedIndex& idx, const fs::pat
     write_u32(out, static_cast<uint32_t>(idx.postings.size()));
 
     for (const auto& kv : idx.postings) {
-        const std::string& term = kv.first;
-        const auto& plist = kv.second;
-
         uint64_t off = static_cast<uint64_t>(out.tellp());
-        offsets.push_back({term,off});
+        offsets.emplace_back(kv.first, off);
 
-        write_string(out, term);
-        write_u32(out, static_cast<uint32_t>(plist.size()));
+        write_string(out, kv.first);
+        write_u32(out, static_cast<uint32_t>(kv.second.size()));
 
-        for (const auto& [docId, tf] : plist) {
+        for (const auto& [docId, tf] : kv.second) {
             write_u32(out, docId);
             write_u32(out, tf);
         }
@@ -119,8 +114,7 @@ inline void SegmentWriter::writeMetaJson(const SegmentMeta& meta, const fs::path
 }
 
 inline SegmentMeta SegmentWriter::flush(const InvertedIndex& idx, const std::string& segmentRoot) {
-    fs::path root(segmentRoot);
-    fs::path segDir = makeNewSegmentDir(root);
+    fs::path segDir = makeNewSegmentDir(segmentRoot);
 
     SegmentMeta meta;
     meta.docCount = static_cast<uint32_t>(idx.docs.size());

@@ -5,4 +5,8 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+<<<<<<< HEAD
 test.cpp
+=======
+test.cpp
+>>>>>>> f237ee8 (only loads requested term postings which uses less memory)
