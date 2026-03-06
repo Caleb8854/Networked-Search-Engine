@@ -1,8 +1,18 @@
-index.pkl
-segments/
-data/
+# Python
+.venv/
 __pycache__/
 *.pyc
-.DS_Store
-Thumbs.db
-test.cpp
+build*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.pyd
+*.so
+*.dll
+*.lib
+*.exp
+segments/
+lsmdb/
+manifest.json
+*.log

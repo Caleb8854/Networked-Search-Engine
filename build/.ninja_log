@@ -1,5 +1,6 @@
 # ninja log v7
-32	6751	7941364998828094	searchcore_dir/CMakeFiles/test_token.dir/test.cpp.obj	66f2260326443bdd
-6754	7054	7941365066049350	searchcore_dir/test_token.exe	948abb39d292b6ff
-23	9052	7941364998656935	searchcore_dir/CMakeFiles/searchcore.dir/searchcore.cpp.obj	32caff396923fe12
-9056	18789	7941365089032774	searchcore_dir/searchcore.cp313-win_amd64.pyd	66403ea8e58f3d3b
+39	3613	7944848917558968	searchcore_dir/CMakeFiles/searchcore.dir/lsmStore.cpp.obj	12a93930f887dec3
+50	3710	7944848917802072	searchcore_dir/CMakeFiles/test_token.dir/test.cpp.obj	66f2260326443bdd
+3710	4505	7944848954423407	out/test_token.exe	f99a0b537b9b489f
+32	6829	7944848917558968	searchcore_dir/CMakeFiles/searchcore.dir/searchcore.cpp.obj	79a85764231bebc3
+6830	17074	7944848985535365	C:/Users/calca/Documents/Database/searchcore.cp313-win_amd64.pyd	b3ba3c43800af144

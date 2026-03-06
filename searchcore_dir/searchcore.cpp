@@ -7,6 +7,7 @@
 #include "segmentReader.hpp"
 #include "segmentOps.hpp"
 #include "merge.hpp"
+#include "lsmStore.hpp"
 
 namespace py = pybind11;
 
@@ -77,4 +78,13 @@ PYBIND11_MODULE(searchcore, m) {
           py::arg("segments_root"), py::arg("path"));
 
     m.def("merge_smallest", &merge_smallest, py::arg("segments_root"));
+    
+    py::class_<LsmStore>(m, "LsmStore")
+        .def(py::init<const std::string&>(), py::arg("db_path"))
+        .def("get_docid_by_path", &LsmStore::getDocIdByPath)
+        .def("put_path", &LsmStore::putPath)
+        .def("put_docmeta", &LsmStore::putDocMeta)
+        .def("get_docmeta", &LsmStore::getDocMeta)
+        .def("tombstone", &LsmStore::tombstone)
+        .def("is_deleted", &LsmStore::isDeleted);
 }
