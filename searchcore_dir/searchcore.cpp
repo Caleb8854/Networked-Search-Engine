@@ -28,7 +28,7 @@ static std::unordered_map<std::string, uint32_t> load_indexed_paths(const std::s
     return SegmentReader::loadIndexedPaths(segmentsRoot);
 }
 
-static std::vector<std::tuple<double, uint32_t, std::string, std::string>> search_bm25(const std::vector<std::string>& segmentDirs, const std::string& query, int k = 10, double k1 = 1.2, double b = 0.75) {
+static std::vector<std::pair<double, uint32_t>> search_bm25(const std::vector<std::string>& segmentDirs, const std::string& query, int k = 10, double k1 = 1.2, double b = 0.75) {
     std::vector<std::unique_ptr<SegmentReader>> owned;
     owned.reserve(segmentDirs.size());
 
@@ -48,7 +48,7 @@ static std::vector<std::tuple<double, uint32_t, std::string, std::string>> searc
     std::vector<std::tuple<double, uint32_t, std::string, std::string>> out;
     out.reserve(hits.size());
     for (auto& h : hits) {
-        out.emplace_back(h.score, h.docId, h.title, h.path);
+        out.emplace_back(h.score, h.docId);
     }
     return out;
 }
@@ -68,8 +68,6 @@ PYBIND11_MODULE(searchcore, m) {
           py::arg("paths"), py::arg("start_doc_id"), py::arg("segments_root"),
           py::arg("threads") = 0);
 
-    m.def("load_indexed_paths", &load_indexed_paths, py::arg("segments_root"));
-
     m.def("search_bm25", &search_bm25,
           py::arg("segment_dirs"), py::arg("query"), py::arg("k") = 10,
           py::arg("k1") = 1.2, py::arg("b") = 0.75);
@@ -78,7 +76,7 @@ PYBIND11_MODULE(searchcore, m) {
           py::arg("segments_root"), py::arg("path"));
 
     m.def("merge_smallest", &merge_smallest, py::arg("segments_root"));
-    
+
     py::class_<LsmStore>(m, "LsmStore")
         .def(py::init<const std::string&>(), py::arg("db_path"))
         .def("get_docid_by_path", &LsmStore::getDocIdByPath)

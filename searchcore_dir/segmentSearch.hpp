@@ -13,8 +13,6 @@
 struct Hit {
     double score;
     uint32_t docId;
-    std::string title;
-    std::string path;
 };
 
 struct DocKey {
@@ -103,8 +101,7 @@ public:
 
             if(seg->isDeleted(key.doc)) continue;
 
-            DocMeta m = seg->docMeta(key.doc);
-            hits.push_back(Hit{kv.second, key.doc, m.title, m.path});
+            hits.push_back(Hit{kv.second, key.doc});
         }
         std::sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) {
             return a.score > b.score;
