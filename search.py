@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -87,9 +88,22 @@ class EngineController:
         if not paths:
             return 0
 
-        start_doc_id = self.store.alloc_doc_id_block(len(paths))
+        to_index: List[Tuple[str,str]] = []
+        for path in paths:
+            data = Path(path).read_bytes()
+            h = hashlib.sha256(data).hexdigest()
 
-        for i, path in enumerate(paths):
+            old_hash = self.db.get_hash_by_path(path)
+            if old_hash is not None and str(old_hash) == h:
+                continue
+            to_index.append((path,h))
+
+        if not to_index:
+            return 0
+
+        start_doc_id = self.store.alloc_doc_id_block(len(to_index))
+        path_for_segments: List[str] = []
+        for i, (path, h) in enumerate(to_index):
             old = self.db.get_docid_by_path(path)
             if old is not None and not self.db.is_deleted(old):
                 self.db.tombstone(old)
@@ -97,16 +111,18 @@ class EngineController:
             self.db.put_path(path, new_doc_id)
             title = Path(path).name
             self.db.put_docmeta(new_doc_id,title,path)
+            self.db.put_hash_for_path(path, h)
+            path_for_segments.append(path)
 
         build_fn = self._require("build_segment_parallel")
 
         try:
-            build_fn(paths, int(start_doc_id), str(SEGMENTS_DIR), int(threads))
+            build_fn(path_for_segments, int(start_doc_id), str(SEGMENTS_DIR), int(threads))
         except TypeError:
-            build_fn(paths, int(start_doc_id), str(SEGMENTS_DIR))
+            build_fn(path_for_segments, int(start_doc_id), str(SEGMENTS_DIR))
 
         self.store.save_atomic()
-        return len(paths)
+        return len(path_for_segments)
 
     def delete_path(self, path: str) -> int:
         p = Path(path)
