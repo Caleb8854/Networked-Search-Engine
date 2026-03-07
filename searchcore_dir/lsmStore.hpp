@@ -28,6 +28,9 @@ public:
     void tombstone(uint32_t doc_id);
     bool isDeleted(uint32_t doc_id) const;
 
+    std::optional<std::string> getHashByPath(const std::string& path) const;
+    void putHashForPath(const std::string& path, const std::string& hex_hash);
+
 private:
     rocksdb::DB* db_{nullptr};
 
@@ -40,4 +43,6 @@ private:
 
     static std::string packMeta(const std::string& title, const std::string& path);
     static std::optional<std::tuple<std::string, std::string>> unpackMeta(const std::string& blob);
+
+    static std::string kHash(const std::string& path);
 };

@@ -56,6 +56,7 @@ class EngineController:
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.store = ManifestStore(SEGMENTS_DIR, MANIFEST_PATH)
+        self.db = searchcore.LsmStore(str(self.project_root / "lsmdb"))
 
     def _require(self, *names: str):
         for n in names:
@@ -71,17 +72,10 @@ class EngineController:
 
     def _segment_paths(self) -> List[str]:
         return [str(p) for p in _list_segment_dirs(SEGMENTS_DIR)]
-
-    def load_indexed_paths(self) -> Dict[str, int]:
-        fn = self._require("load_indexed_paths")
-        out = fn(str(SEGMENTS_DIR))
-        return {str(k): int(v) for k, v in out.items()}
     
     def index_folder(self, docs_dir: Path, threads: int = 0) -> int:
         if not docs_dir.is_dir():
             raise FileNotFoundError(f"Docs folder not found: {docs_dir}")
-
-        db = searchcore.LsmStore(str(self.project_root / "lsmdb"))
 
         paths: List[str] = []
         for p in sorted(docs_dir.iterdir()):
@@ -96,13 +90,13 @@ class EngineController:
         start_doc_id = self.store.alloc_doc_id_block(len(paths))
 
         for i, path in enumerate(paths):
-            old = db.get_docid_by_path(path)
-            if old is not None and not db.is_deleted(old):
-                db.tombstone(old)
+            old = self.db.get_docid_by_path(path)
+            if old is not None and not self.db.is_deleted(old):
+                self.db.tombstone(old)
             new_doc_id = start_doc_id + i
-            db.put_path(path, new_doc_id)
+            self.db.put_path(path, new_doc_id)
             title = Path(path).name
-            db.put_docmeta(new_doc_id,title,path)
+            self.db.put_docmeta(new_doc_id,title,path)
 
         build_fn = self._require("build_segment_parallel")
 
@@ -120,12 +114,11 @@ class EngineController:
             p = (self.project_root / p).resolve()
         norm = str(p)
 
-        db = searchcore.LsmStore(self.project_root / "lsmdb")
-        doc_id = db.get_docid_by_path(norm)
+        doc_id = self.db.get_docid_by_path(norm)
         if doc_id is None:
             return 0
-        if not db.is_deleted(doc_id):
-            db.tombstone(doc_id)
+        if not self.db.is_deleted(doc_id):
+            self.db.tombstone(doc_id)
         try:
             delete_fn = self._require("delete_by_path_all")
             delete_fn(str(SEGMENTS_DIR), norm)
@@ -135,15 +128,13 @@ class EngineController:
 
     def merge_smallest(self) -> int:
         merge_fn = self._require("merge_smallest")
-        return int(merge_fn(str(SEGMENTS_DIR)))
+        return int(merge_fn(str(SEGMENTS_DIR), str(self.project_root / "lsmdb")))
 
     def search(self, query: str, k: int = 10, k1: float = 1.2, b: float = 0.75) -> List[SearchHit]:
         segs = self._segment_paths()
         if not segs:
             return []
-
-        db = searchcore.LsmStore(str(self.project_root / "lsmdb"))
-
+        
         search_fn = self._require("search_bm25")
         try:
             raw = search_fn(segs, str(query), int(k), float(k1), float(b))
@@ -153,14 +144,14 @@ class EngineController:
         out: List[SearchHit] = []
         for score, doc_id in raw:
             doc_id = int(doc_id)
-            if db.is_deleted(doc_id):
+            if self.db.is_deleted(doc_id):
                 continue
 
-            meta = db.get_docmeta(doc_id)
+            meta = self.db.get_docmeta(doc_id)
             if meta is None:
                 continue
             title, path = meta
-            current = db.get_docid_by_path(path)
+            current = self.db.get_docid_by_path(path)
             if current is not None and int(current) != doc_id:
                 continue
 
@@ -193,7 +184,6 @@ class EngineController:
     def check_bindings(self) -> None:
         expected = [
             "build_segment_parallel",
-            "load_indexed_paths",
             "search_bm25",
             "delete_by_path_all",
             "merge_smallest",

@@ -142,3 +142,18 @@ bool LsmStore::isDeleted(uint32_t doc_id) const {
     auto st = db_->Get(rocksdb::ReadOptions(), kTomb(doc_id), &value);
     return st.ok();
 }
+
+std::string LsmStore::kHash(const std::string& path) {
+    return std::string("h:") + path;
+}
+
+std::optional<std::string> LsmStore::getHashByPath(const std::string& path) const {
+    std::string value;
+    auto st = db_->Get(rocksdb::ReadOptions(), kHash(path), &value);
+    if (!st.ok()) return std::nullopt;
+    return value;
+}
+
+void LsmStore::putHashForPath(const std::string& path, const std::string& hex_hash) {
+    must_ok(db_->Put(rocksdb::WriteOptions(), kHash(path), hex_hash));
+}

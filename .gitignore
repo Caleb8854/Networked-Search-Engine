@@ -12,7 +12,10 @@ compile_commands.json
 *.dll
 *.lib
 *.exp
+*.ilk
+*.pdb
 segments/
 lsmdb/
 manifest.json
 *.log
+*.pyi

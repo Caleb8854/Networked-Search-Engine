@@ -14,6 +14,7 @@
 #include "binio.hpp"
 #include "segmentReader.hpp"
 #include "segmentWriter.hpp"
+#include "lsmStore.hpp"
 
 namespace fs = std::filesystem;
 
@@ -91,31 +92,37 @@ inline void collectTerms(const SegmentReader& seg, std::unordered_set<std::strin
     }
 }
 
-inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, const fs::path& segDirA, const fs::path& segDirB) {
+inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, const fs::path& segDirA, const fs::path& segDirB, const std::string& lsmDbPath = "") {
     SegmentReader A(segDirA.string());
     SegmentReader B(segDirB.string());
     A.loadMeta();
     B.loadMeta();
+    A.loadDeleted();
+    B.loadDeleted();
+
+    std::unique_ptr<LsmStore> db;
+    if (!lsmDbPath.empty()) {
+        db = std::make_unique<LsmStore>(lsmDbPath);
+    }
+
+    auto keepDoc = [&](const SegmentReader& S, uint32_t docId, const DocMeta& dm) -> bool {
+        if(S.isDeleted(docId)) return false;
+        if(db) {
+            if(db->isDeleted(docId)) return false;
+            auto cur = db->getDocIdByPath(dm.path);
+            if(cur.has_value() && cur.value() != docId) return false;
+        }
+        return true;
+    };
 
     InvertedIndex merged;
 
-    std::unordered_map<uint32_t,uint32_t> mapA;
-    std::unordered_map<uint32_t,uint32_t> mapB;
-    mapA.reserve(A.allDocs().size());
-    mapB.reserve(B.allDocs().size());
+    auto addLiveDocs = [&](const SegmentReader& S) {
+        for (const auto& [oldDoc, dm] : S.allDocs()) {
+            if (!keepDoc(S, oldDoc, dm)) continue;
 
-    uint32_t nextId = 1;
-
-    auto addLiveDocs = [&](const SegmentReader& S, std::unordered_map<uint32_t,uint32_t>& remap)
-    {
-        for (const auto& [oldId, dm] : S.allDocs()) {
-            if (S.isDeleted(oldId)) continue;
-
-            uint32_t newId = nextId++;
-            remap.emplace(oldId, newId);
-
-            merged.docs[newId] = dm;
-            merged.doclen[newId] = S.docLen(oldId);
+            merged.docs[oldDoc] = dm;
+            merged.doclen[oldDoc] = S.docLen(oldDoc);
         }
     };
 
@@ -132,17 +139,19 @@ inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, con
         tmp.clear();
 
         for (const auto& [oldDoc, tf] : A.getPostings(term)) {
-            if (A.isDeleted(oldDoc)) continue;
-            auto it = mapA.find(oldDoc);
-            if (it == mapA.end()) continue;
-            tmp.emplace_back(it->second, tf);
+            auto it = A.allDocs().find(oldDoc)
+            if (it == A.allDocs().end()) continue;
+            if (!keepDoc(A, oldDoc, it->second)) continue;
+            if (tf == 0) continue;
+            tmp.emplace_back(oldDoc, tf);
         }
 
         for (const auto& [oldDoc, tf] : B.getPostings(term)) {
-            if (B.isDeleted(oldDoc)) continue;
-            auto it = mapB.find(oldDoc);
-            if (it == mapB.end()) continue;
-            tmp.emplace_back(it->second, tf);
+            auto it = B.allDocs().find(oldDoc)
+            if (it == B.allDocs().end()) continue;
+            if (!keepDoc(B, oldDoc, it->second)) continue;
+            if (tf == 0) continue;
+            tmp.emplace_back(oldDoc, tf);
         }
 
         if (tmp.empty()) continue;
@@ -160,15 +169,14 @@ inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, con
     return static_cast<uint32_t>(merged.docs.size());
 }
 
-inline uint32_t mergeSmallest(const std::string& segmentsRootStr) {
+inline uint32_t mergeSmallest(const std::string& segmentsRootStr, const std::string& lsmDbPath) {
     auto segs = listSegments(segmentsRootStr);
     if (segs.size() < 2) return 0;
 
     fs::path a = segs[0].dir;
     fs::path b = segs[1].dir;
 
-    uint32_t mergedLiveDocs = mergeSegmentsDropDeletes(segmentsRootStr, a, b);
-
+    uint32_t mergedLiveDocs = mergeSegmentsDropDeletes(segmentsRootStr, a, b, lsmDbPath);
     std::error_code ec;
     fs::remove_all(a, ec);
     if (ec) throw std::runtime_error("Failed to remove segment " + a.string() + ": " + ec.message());

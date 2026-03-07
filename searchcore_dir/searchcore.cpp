@@ -45,7 +45,7 @@ static std::vector<std::pair<double, uint32_t>> search_bm25(const std::vector<st
     s.refreshDeleted();
     auto hits = s.searchBM25(query, k, k1, b);
 
-    std::vector<std::tuple<double, uint32_t, std::string, std::string>> out;
+    std::vector<std::pair<double, uint32_t>> out;
     out.reserve(hits.size());
     for (auto& h : hits) {
         out.emplace_back(h.score, h.docId);
@@ -57,8 +57,8 @@ static uint32_t delete_by_path_all(const std::string& segmentsRoot, const std::s
     return SegmentOps::deleteByPathAll(segmentsRoot, path);
 }
 
-static uint32_t merge_smallest(const std::string& segmentsRoot) {
-    return mergeSmallest(segmentsRoot);
+static uint32_t merge_smallest(const std::string& segmentsRoot, const std::string& lsmDbPath) {
+    return mergeSmallest(segmentsRoot, lsmDbPath);
 }
 
 PYBIND11_MODULE(searchcore, m) {
@@ -75,7 +75,7 @@ PYBIND11_MODULE(searchcore, m) {
     m.def("delete_by_path_all", &delete_by_path_all,
           py::arg("segments_root"), py::arg("path"));
 
-    m.def("merge_smallest", &merge_smallest, py::arg("segments_root"));
+    m.def("merge_smallest", &merge_smallest, py::arg("segments_root"), py::arg("lsm_db_path"));
 
     py::class_<LsmStore>(m, "LsmStore")
         .def(py::init<const std::string&>(), py::arg("db_path"))
@@ -84,5 +84,7 @@ PYBIND11_MODULE(searchcore, m) {
         .def("put_docmeta", &LsmStore::putDocMeta)
         .def("get_docmeta", &LsmStore::getDocMeta)
         .def("tombstone", &LsmStore::tombstone)
-        .def("is_deleted", &LsmStore::isDeleted);
+        .def("is_deleted", &LsmStore::isDeleted)
+        .def("get_hash_by_path", &LsmStore::getHashByPath)
+        .def("put_hash_for_path", &LsmStore::putHashForPath);
 }
