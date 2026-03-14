@@ -92,18 +92,13 @@ inline void collectTerms(const SegmentReader& seg, std::unordered_set<std::strin
     }
 }
 
-inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, const fs::path& segDirA, const fs::path& segDirB, const std::string& lsmDbPath = "") {
+inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, const fs::path& segDirA, const fs::path& segDirB, const LsmStore* db) {
     SegmentReader A(segDirA.string());
     SegmentReader B(segDirB.string());
     A.loadMeta();
     B.loadMeta();
     A.loadDeleted();
     B.loadDeleted();
-
-    std::unique_ptr<LsmStore> db;
-    if (!lsmDbPath.empty()) {
-        db = std::make_unique<LsmStore>(lsmDbPath);
-    }
 
     auto keepDoc = [&](const SegmentReader& S, uint32_t docId, const DocMeta& dm) -> bool {
         if(S.isDeleted(docId)) return false;
@@ -126,8 +121,8 @@ inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, con
         }
     };
 
-    addLiveDocs(A, mapA);
-    addLiveDocs(B, mapB);
+    addLiveDocs(A);
+    addLiveDocs(B);
 
     std::unordered_set<std::string> allTerms;
     allTerms.reserve(A.allTermdf().size() + B.allTermdf().size());
@@ -139,7 +134,7 @@ inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, con
         tmp.clear();
 
         for (const auto& [oldDoc, tf] : A.getPostings(term)) {
-            auto it = A.allDocs().find(oldDoc)
+            auto it = A.allDocs().find(oldDoc);
             if (it == A.allDocs().end()) continue;
             if (!keepDoc(A, oldDoc, it->second)) continue;
             if (tf == 0) continue;
@@ -147,7 +142,7 @@ inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, con
         }
 
         for (const auto& [oldDoc, tf] : B.getPostings(term)) {
-            auto it = B.allDocs().find(oldDoc)
+            auto it = B.allDocs().find(oldDoc);
             if (it == B.allDocs().end()) continue;
             if (!keepDoc(B, oldDoc, it->second)) continue;
             if (tf == 0) continue;
@@ -169,14 +164,14 @@ inline uint32_t mergeSegmentsDropDeletes(const std::string& segmentsRootStr, con
     return static_cast<uint32_t>(merged.docs.size());
 }
 
-inline uint32_t mergeSmallest(const std::string& segmentsRootStr, const std::string& lsmDbPath) {
+inline uint32_t mergeSmallest(const std::string& segmentsRootStr, const LsmStore& db) {
     auto segs = listSegments(segmentsRootStr);
     if (segs.size() < 2) return 0;
 
     fs::path a = segs[0].dir;
     fs::path b = segs[1].dir;
 
-    uint32_t mergedLiveDocs = mergeSegmentsDropDeletes(segmentsRootStr, a, b, lsmDbPath);
+    uint32_t mergedLiveDocs = mergeSegmentsDropDeletes(segmentsRootStr, a, b, &db);
     std::error_code ec;
     fs::remove_all(a, ec);
     if (ec) throw std::runtime_error("Failed to remove segment " + a.string() + ": " + ec.message());

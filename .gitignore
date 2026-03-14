@@ -19,3 +19,4 @@ lsmdb/
 manifest.json
 *.log
 *.pyi
+.vscode

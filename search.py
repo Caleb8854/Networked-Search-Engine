@@ -5,13 +5,12 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import List, Tuple
 
 import searchcore
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SEGMENTS_DIR = PROJECT_ROOT / "segments"
-MANIFEST_PATH = SEGMENTS_DIR / "manifest.json"
 DOCS_DIR = PROJECT_ROOT / "docs"
 
 
@@ -21,29 +20,6 @@ class SearchHit:
     doc_id: int
     title: str
     path: str
-
-
-class ManifestStore:
-    def __init__(self, segments_dir: Path, manifest_path: Path):
-        self.segments_dir = segments_dir
-        self.manifest_path = manifest_path
-        self.segments_dir.mkdir(parents=True, exist_ok=True)
-        self.manifest: Dict[str, Any] = self._load_or_init()
-
-    def _load_or_init(self) -> Dict[str, Any]:
-        if self.manifest_path.exists():
-            return json.loads(self.manifest_path.read_text(encoding="utf-8"))
-        return {"version": 2, "nextDocId": 1}
-
-    def save_atomic(self) -> None:
-        tmp = self.manifest_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self.manifest, indent=2), encoding="utf-8")
-        os.replace(tmp, self.manifest_path)
-
-    def alloc_doc_id_block(self, n: int) -> int:
-        start = int(self.manifest.get("nextDocId", 1))
-        self.manifest["nextDocId"] = start + int(n)
-        return start
 
 def _list_segment_dirs(segments_root: Path) -> List[Path]:
     if not segments_root.exists():
@@ -56,7 +32,6 @@ def _list_segment_dirs(segments_root: Path) -> List[Path]:
 class EngineController:
     def __init__(self, project_root: Path):
         self.project_root = project_root
-        self.store = ManifestStore(SEGMENTS_DIR, MANIFEST_PATH)
         self.db = searchcore.LsmStore(str(self.project_root / "lsmdb"))
 
     def _require(self, *names: str):
@@ -101,28 +76,27 @@ class EngineController:
         if not to_index:
             return 0
 
-        start_doc_id = self.store.alloc_doc_id_block(len(to_index))
-        path_for_segments: List[str] = []
+        start_doc_id = self.db.alloc_doc_id_block(len(to_index))
+        path_for_segment: List[str] = []
         for i, (path, h) in enumerate(to_index):
-            old = self.db.get_docid_by_path(path)
-            if old is not None and not self.db.is_deleted(old):
-                self.db.tombstone(old)
-            new_doc_id = start_doc_id + i
-            self.db.put_path(path, new_doc_id)
+            old_Id = self.db.get_docid_by_path(path)
+            new_Id = start_doc_id + i
             title = Path(path).name
-            self.db.put_docmeta(new_doc_id,title,path)
-            self.db.put_hash_for_path(path, h)
-            path_for_segments.append(path)
+            if old_Id is not None and not self.db.is_deleted(old_Id):
+                old_Id = int(old_Id)
+            else:
+                old_Id = None
+            self.db.upsert_doc(path, title, int(new_Id), h, old_Id)
+            path_for_segment.append(path)
 
         build_fn = self._require("build_segment_parallel")
 
         try:
-            build_fn(path_for_segments, int(start_doc_id), str(SEGMENTS_DIR), int(threads))
+            build_fn(path_for_segment, int(start_doc_id), str(SEGMENTS_DIR), int(threads))
         except TypeError:
-            build_fn(path_for_segments, int(start_doc_id), str(SEGMENTS_DIR))
+            build_fn(path_for_segment, int(start_doc_id), str(SEGMENTS_DIR))
 
-        self.store.save_atomic()
-        return len(path_for_segments)
+        return len(path_for_segment)
 
     def delete_path(self, path: str) -> int:
         p = Path(path)
@@ -144,7 +118,7 @@ class EngineController:
 
     def merge_smallest(self) -> int:
         merge_fn = self._require("merge_smallest")
-        return int(merge_fn(str(SEGMENTS_DIR), str(self.project_root / "lsmdb")))
+        return int(merge_fn(str(SEGMENTS_DIR), self.db))
 
     def search(self, query: str, k: int = 10, k1: float = 1.2, b: float = 0.75) -> List[SearchHit]:
         segs = self._segment_paths()
@@ -180,7 +154,7 @@ class EngineController:
     def stats(self) -> None:
         segs = _list_segment_dirs(SEGMENTS_DIR)
         print(f"Segments: {len(segs)}")
-        print(f"Next docId: {self.store.manifest.get('nextDocId', 1)}")
+        print(f"Next docId: {self.db.peek_next_doc_id()}")
         print(f"Docs dir: {DOCS_DIR}")
         print()
 
@@ -225,7 +199,7 @@ def main() -> None:
     print("Docs dir:", DOCS_DIR)
     print("\nCommands:")
     print("  :index [threads]        -> index docs/ into a NEW segment (update existing files)")
-    print("  :stats                  -> show manifest + segment meta stats")
+    print("  :stats                  -> show segment stats")
     print("  :deletepath <path>      -> tombstone by file path across segments")
     print("  :merge                  -> merge two smallest segments (drops deletes)")
     print("  :check                  -> verify C++ bindings are present")

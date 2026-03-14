@@ -1,11 +1,4 @@
-# ninja log v7
-39	3613	7944848917558968	searchcore_dir/CMakeFiles/searchcore.dir/lsmStore.cpp.obj	12a93930f887dec3
-50	3710	7944848917802072	searchcore_dir/CMakeFiles/test_token.dir/test.cpp.obj	66f2260326443bdd
-3710	4505	7944848954423407	out/test_token.exe	f99a0b537b9b489f
-32	6829	7944848917558968	searchcore_dir/CMakeFiles/searchcore.dir/searchcore.cpp.obj	79a85764231bebc3
-6830	17074	7944848985535365	C:/Users/calca/Documents/Database/searchcore.cp313-win_amd64.pyd	b3ba3c43800af144
-35	3031	7944879085006171	searchcore_dir/CMakeFiles/test_token.dir/test.cpp.obj	3151ac5d51fd30f8
-26	4493	7944879084917346	searchcore_dir/CMakeFiles/searchcore.dir/lsmStore.cpp.obj	d69012703c9b3b0c
-3032	4690	7944879114901142	out/test_token.exe	297ae11fb9e40d4e
-6	6564	7944881558460615	searchcore_dir/CMakeFiles/searchcore.dir/searchcore.cpp.obj	b1b97469b74a60b
-6565	15968	7944881623996833	C:/Users/calca/Documents/Database/searchcore.cp313-win_amd64.pyd	9755e9d31bfb601
+# ninja log v5
+2	3490	1773517357705175650	searchcore_dir/CMakeFiles/searchcore.dir/lsmStore.cpp.o	cd0de4af4a02a400
+1	9895	1773517364104479717	searchcore_dir/CMakeFiles/searchcore.dir/searchcore.cpp.o	afc7067f10cbc190
+9895	18596	1773517372811213795	/home/calca/projects/Database/searchcore.cpython-312-x86_64-linux-gnu.so	df5d76fdbb7608be

@@ -31,6 +31,11 @@ public:
     std::optional<std::string> getHashByPath(const std::string& path) const;
     void putHashForPath(const std::string& path, const std::string& hex_hash);
 
+    uint32_t allocDocIdBlock(uint32_t n);
+    uint32_t peekNextDocId() const;
+
+    void upsertDoc(const std::string& path, const std::string& title, uint32_t new_doc_id, const std::string& sha256_hex, std::optional<uint32_t> old_doc_id);
+
 private:
     rocksdb::DB* db_{nullptr};
 

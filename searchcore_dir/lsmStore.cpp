@@ -2,6 +2,7 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
+#include <rocksdb/write_batch.h>
 
 #include <cstring>
 #include <stdexcept>
@@ -156,4 +157,50 @@ std::optional<std::string> LsmStore::getHashByPath(const std::string& path) cons
 
 void LsmStore::putHashForPath(const std::string& path, const std::string& hex_hash) {
     must_ok(db_->Put(rocksdb::WriteOptions(), kHash(path), hex_hash));
+}
+
+uint32_t LsmStore::allocDocIdBlock(uint32_t n) {
+    const std::string key = "meta:nextDocId";
+
+    std::string value;
+    uint32_t current = 1;
+
+    auto st = db_->Get(rocksdb::ReadOptions(), key, &value);
+    if (st.ok() && value.size() == sizeof(uint32_t)) {
+        std::memcpy(&current, value.data(), sizeof(uint32_t));
+    }
+
+    uint32_t next = current + n;
+
+    std::string out(sizeof(uint32_t), '\0');
+    std::memcpy(out.data(), &next, sizeof(uint32_t));
+
+    must_ok(db_->Put(rocksdb::WriteOptions(), key, out));
+
+    return current;
+}
+
+uint32_t LsmStore::peekNextDocId() const {
+    const std::string key = "meta:nextDocId";
+
+    std::string value;
+    uint32_t current = 1;
+
+    auto st = db_->Get(rocksdb::ReadOptions(), key, &value);
+    if (st.ok() && value.size() == sizeof(uint32_t)) {
+        std::memcpy(&current, value.data(), sizeof(uint32_t));
+    }
+    return current;
+}
+
+void LsmStore::upsertDoc(const std::string& path, const std::string& title, uint32_t new_doc_id, const std::string& sha256_hex, std::optional<uint32_t> old_doc_id) {
+    rocksdb::WriteBatch wb;
+    if(old_doc_id.has_value()) {
+        wb.Put(kTomb(old_doc_id.value()), "1");
+    }
+    wb.Put(kPath(path), u32le(new_doc_id));
+    wb.Put(kDocMeta(new_doc_id), packMeta(title, path));
+    wb.Put(kHash(path), sha256_hex);
+    rocksdb::WriteOptions wo;
+    must_ok(db_->Write(wo, &wb));
 }

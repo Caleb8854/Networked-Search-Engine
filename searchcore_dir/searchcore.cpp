@@ -57,8 +57,8 @@ static uint32_t delete_by_path_all(const std::string& segmentsRoot, const std::s
     return SegmentOps::deleteByPathAll(segmentsRoot, path);
 }
 
-static uint32_t merge_smallest(const std::string& segmentsRoot, const std::string& lsmDbPath) {
-    return mergeSmallest(segmentsRoot, lsmDbPath);
+static uint32_t merge_smallest(const std::string& segmentsRoot, const LsmStore& db) {
+    return mergeSmallest(segmentsRoot, db);
 }
 
 PYBIND11_MODULE(searchcore, m) {
@@ -75,7 +75,7 @@ PYBIND11_MODULE(searchcore, m) {
     m.def("delete_by_path_all", &delete_by_path_all,
           py::arg("segments_root"), py::arg("path"));
 
-    m.def("merge_smallest", &merge_smallest, py::arg("segments_root"), py::arg("lsm_db_path"));
+    m.def("merge_smallest", &merge_smallest, py::arg("segments_root"), py::arg("db"));
 
     py::class_<LsmStore>(m, "LsmStore")
         .def(py::init<const std::string&>(), py::arg("db_path"))
@@ -86,5 +86,9 @@ PYBIND11_MODULE(searchcore, m) {
         .def("tombstone", &LsmStore::tombstone)
         .def("is_deleted", &LsmStore::isDeleted)
         .def("get_hash_by_path", &LsmStore::getHashByPath)
-        .def("put_hash_for_path", &LsmStore::putHashForPath);
+        .def("put_hash_for_path", &LsmStore::putHashForPath)
+        .def("alloc_doc_id_block", &LsmStore::allocDocIdBlock)
+        .def("peek_next_doc_id", &LsmStore::peekNextDocId)
+        .def("upsert_doc", &LsmStore::upsertDoc,
+            py::arg("path"), py::arg("title"), py::arg("new_doc_id"), py::arg("sha256_hex"), py::arg("old_doc_id") = std::optional<uint32_t>{});
 }

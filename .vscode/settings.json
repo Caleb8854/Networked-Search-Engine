@@ -1,3 +1,8 @@
 {
-    "C_Cpp.errorSquiggles": "disabled"
+  "cmake.configureOnOpen": false,
+  "cmake.generator": "Ninja",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureSettings": {
+    "Python3_EXECUTABLE": "${workspaceFolder}/.venv/bin/python"
+  }
 }
