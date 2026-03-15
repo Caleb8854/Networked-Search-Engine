@@ -1,5 +1,0 @@
-/home/calca/projects/Database/build/CMakeFiles/edit_cache.dir
-/home/calca/projects/Database/build/CMakeFiles/rebuild_cache.dir
-/home/calca/projects/Database/build/searchcore_dir/CMakeFiles/searchcore.dir
-/home/calca/projects/Database/build/searchcore_dir/CMakeFiles/edit_cache.dir
-/home/calca/projects/Database/build/searchcore_dir/CMakeFiles/rebuild_cache.dir

@@ -1,4 +1,0 @@
-# ninja log v5
-2	3490	1773517357705175650	searchcore_dir/CMakeFiles/searchcore.dir/lsmStore.cpp.o	cd0de4af4a02a400
-1	9895	1773517364104479717	searchcore_dir/CMakeFiles/searchcore.dir/searchcore.cpp.o	afc7067f10cbc190
-9895	18596	1773517372811213795	/home/calca/projects/Database/searchcore.cpython-312-x86_64-linux-gnu.so	df5d76fdbb7608be

@@ -25,6 +25,6 @@ target_include_directories(searchcore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(searchcore PRIVATE ${ROCKSDB_LIB})
 
 set_target_properties(searchcore PROPERTIES
-  LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
+	LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 

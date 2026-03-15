@@ -1,0 +1,13 @@
+.git
+.venv
+build
+build-ninja
+.vscode
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.so
+frontend/node_modules
+frontend/dist
+
